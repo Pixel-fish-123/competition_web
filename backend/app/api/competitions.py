@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.rbac import require_admin
 from app.db import get_db
 from app.models.competition import Competition
+from app.models.match import Match
 from app.models.registration import Registration
 from app.models.user import User
 from app.schemas.competition import (
@@ -29,6 +30,7 @@ from app.schemas.competition import (
     CompetitionStatusUpdate,
     CompetitionUpdate,
 )
+from app.services import match_service
 
 router = APIRouter()
 
@@ -131,10 +133,39 @@ def change_status(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """Admin-only status transition, validated against the state machine."""
+    """Admin-only status transition, validated against the state machine.
+
+    - 进入 ongoing：由引擎赛程生成全部 Match 行（Metis C7，非人工创建）；
+      已有赛程时不重复生成。
+    - 进入 finished：存在未完成对局时拒绝（Metis V-checks）。
+    """
     competition = _get_competition_or_404(db, competition_id)
     if payload.status not in TRANSITIONS.get(competition.status, set()):
         raise HTTPException(status_code=400, detail="非法状态流转")
+
+    if payload.status == "ongoing":
+        existing = (
+            db.query(Match)
+            .filter(Match.competition_id == competition.id)
+            .count()
+        )
+        if existing == 0:
+            try:
+                match_service.build_schedule_for_competition(db, competition)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+    elif payload.status == "finished":
+        unfinished = (
+            db.query(Match)
+            .filter(
+                Match.competition_id == competition.id,
+                Match.status != "finished",
+            )
+            .count()
+        )
+        if unfinished:
+            raise HTTPException(status_code=400, detail="存在未完成的对局")
+
     competition.status = payload.status
     db.commit()
     db.refresh(competition)

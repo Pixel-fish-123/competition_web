@@ -6,11 +6,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 # Import the ORM models so Base.metadata knows about them for create_all.
+import app.models.competition  # noqa: F401
+import app.models.registration  # noqa: F401
 import app.models.team  # noqa: F401
 import app.models.user  # noqa: F401
 from app.api.admin_users import router as admin_users_router
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
+from app.api.registrations import router as registrations_router
 from app.api.teams import router as teams_router
 from app.core.csrf import CSRFMiddleware
 from app.db import Base, engine
@@ -42,6 +45,7 @@ app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(admin_users_router)
 app.include_router(teams_router)
+app.include_router(registrations_router)
 
 # Mount static files from frontend-dist if it exists at startup.
 # The directory may not exist yet (frontend not built); do NOT create it.

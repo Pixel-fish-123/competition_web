@@ -148,7 +148,7 @@ Your next move: 批准后运行 `$start-work competition-web` 开始执行（或
   QA scenarios: happy — 队长建队并加 2 名队员成功；failure — 第 4 名队员加入返回 400，证据 .omo/evidence/task-6-competition-web.txt
   Commit: Y | feat: 队伍与成员管理
 
-- [ ] 7. 报名模块：Registration + 个人/队伍/混合参赛类型 + 人数上限
+- [x] 7. 报名模块：Registration + 个人/队伍/混合参赛类型 + 人数上限
   What to do / Must NOT do: models/registration.py（Registration: id, competition_id, participant_type(team/individual), team_id nullable, user_id nullable, status(pending/approved/rejected), approved_by）；api/registrations.py（POST 报名、DELETE 撤销、GET 我的报名）；核心逻辑：个人报名创建"1 人参赛单位"，队伍报名校验队伍人数；混合模式下两者都允许；**人数上限（Metis E5 修正）：报名校验 competition.max_participants（默认 50），已批准参赛单位数达到上限返回 400「报名已满」**。Must NOT: 不创建 Competition 模型（下一任务用 mock 或先建表）；报名数上限字段在下一任务才落库，本任务用 config 常量兜底。
   Parallelization: Wave 3 | Blocked by: 6 | Blocks: 10
   References (executor has NO interview context - be exhaustive): plan.md §二 2.1（参赛单位模型）、§六（Registration 实体）；Metis 审查 E5（人数上限未强制，本 todo 固化）

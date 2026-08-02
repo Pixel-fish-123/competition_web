@@ -18,6 +18,8 @@ from app.api.registrations import router as registrations_router
 from app.api.teams import router as teams_router
 from app.core.csrf import CSRFMiddleware
 from app.db import Base, engine
+from app.plugins.registry import register_default_plugins
+from app.plugins.routes import mount_gameplay_routes
 
 
 @asynccontextmanager
@@ -25,6 +27,10 @@ async def lifespan(app: FastAPI):
     # DB init strategy (documented): no alembic yet — create tables directly
     # on startup. app.models.user is imported above so the table is registered.
     Base.metadata.create_all(bind=engine)
+    # 玩法插件（todo 12）：扫描注册 plugins/ 下的插件并自动挂载
+    # /api/gameplay/<name>/* 路由（register_default_plugins 幂等）。
+    register_default_plugins()
+    mount_gameplay_routes(app)
     yield
 
 

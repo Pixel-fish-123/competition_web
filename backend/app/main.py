@@ -1,13 +1,32 @@
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+# Import the User model so Base.metadata knows about it for create_all.
+import app.models.user  # noqa: F401
+from app.api.auth import router as auth_router
 from app.api.health import router as health_router
+from app.core.csrf import CSRFMiddleware
+from app.db import Base, engine
 
-app = FastAPI(title="萌新杯音游比赛网站")
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # DB init strategy (documented): no alembic yet — create tables directly
+    # on startup. app.models.user is imported above so the table is registered.
+    Base.metadata.create_all(bind=engine)
+    yield
+
+
+app = FastAPI(title="萌新杯音游比赛网站", lifespan=lifespan)
+
+# Order note: the last add_middleware() call is the outermost middleware.
+# CORS ends up outermost, CSRF inside it — CSRF still sees every request
+# and rejects cross-site state-changing requests before they hit handlers.
+app.add_middleware(CSRFMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -17,6 +36,7 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
+app.include_router(auth_router)
 
 # Mount static files from frontend-dist if it exists at startup.
 # The directory may not exist yet (frontend not built); do NOT create it.

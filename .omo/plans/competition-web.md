@@ -100,7 +100,7 @@ Your next move: 批准后运行 `$start-work competition-web` 开始执行（或
 ## Todos
 > Implementation + Test = ONE todo. Never separate.
 <!-- APPEND TASK BATCHES BELOW THIS LINE WITH edit/apply_patch - never rewrite the headers above. -->
-- [ ] 1. git 初始化 + 仓库骨架 + Python 3.14 依赖兼容性实测
+- [x] 1. git 初始化 + 仓库骨架 + Python 3.14 依赖兼容性实测
   What to do / Must NOT do: 在 D:\myproject1\competition_web 执行 git init；创建 backend/、frontend/、deploy/、docs/ 目录与 .gitignore（忽略 .venv/、node_modules/、__pycache__/、*.db、*.db-wal、*.db-shm、.env）；创建 backend/requirements.txt（fastapi、uvicorn[standard]、sqlalchemy、pydantic、pydantic-settings、bcrypt、PyJWT、slowapi、httpx、pytest、python-multipart）；执行 pip install 实测 Python 3.14.0 兼容性。Must NOT: 不在本任务写任何业务代码；不提交 .env 或密钥。
   Parallelization: Wave 1 | Blocked by: — | Blocks: 2,3
   References (executor has NO interview context - be exhaustive): .omo/drafts/competition-web.md（环境发现：Python 3.14.0/Node v24/Git 2.52.0/Docker 未装，Windows 11）；plan.md §四（环境确认表）与 §三（技术栈）

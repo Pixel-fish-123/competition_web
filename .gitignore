@@ -10,3 +10,4 @@ dist/
 .omo/evidence/
 .omo/run-continuation/
 .omo/start-work/
+*.log

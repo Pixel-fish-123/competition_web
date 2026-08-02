@@ -29,6 +29,18 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class UserPatchRequest(BaseModel):
+    """Admin-only partial user update (todo 5): role / status / password.
+
+    All fields optional; ``None`` means "leave unchanged". Password enforces
+    the same length policy as RegisterRequest.
+    """
+
+    role: str | None = Field(default=None)
+    status: str | None = Field(default=None)
+    password: str | None = Field(default=None, min_length=6, max_length=64)
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

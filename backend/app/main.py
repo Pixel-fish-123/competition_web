@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 # Import the User model so Base.metadata knows about it for create_all.
 import app.models.user  # noqa: F401
+from app.api.admin_users import router as admin_users_router
 from app.api.auth import router as auth_router
 from app.api.health import router as health_router
 from app.core.csrf import CSRFMiddleware
@@ -37,6 +38,7 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(admin_users_router)
 
 # Mount static files from frontend-dist if it exists at startup.
 # The directory may not exist yet (frontend not built); do NOT create it.

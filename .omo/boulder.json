@@ -1,0 +1,1 @@
+{"schema_version": 2, "active_work_id": "competition-web", "works": {"competition-web": {"work_id": "competition-web", "active_plan": ".omo/plans/competition-web.md", "plan_name": "competition-web", "session_ids": ["codex:competition-web-start-work"], "status": "active", "worktree_path": null, "github_remote": "https://github.com/Pixel-fish-123/competition_web.git"}}}

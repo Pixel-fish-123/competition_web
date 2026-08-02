@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+pydantic-settings
+bcrypt
+PyJWT
+slowapi
+httpx
+pytest
+python-multipart

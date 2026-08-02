@@ -124,7 +124,7 @@ Your next move: 批准后运行 `$start-work competition-web` 开始执行（或
   QA scenarios: happy — npm run build 成功生成 dist/；failure — 临时在 src/main.ts 引入不存在的模块 `import x from './nonexistent'` 后 npm run build 非零退出，改回后恢复，证据 .omo/evidence/task-3-competition-web.txt
   Commit: Y | feat: 前端 Vite+Vue3 骨架
 
-- [ ] 4. 账号认证：User 模型 + 注册/登录/登出 + JWT httpOnly Cookie
+- [x] 4. 账号认证：User 模型 + 注册/登录/登出 + JWT httpOnly Cookie
   What to do / Must NOT do: backend/app/models/user.py（User: id, username unique, email, password_hash, role, status, created_at）；core/security.py（bcrypt hash/verify、PyJWT create/decode，token 存 httpOnly cookie 且 **SameSite=Lax**）；core/csrf.py（对非 GET/HEAD/OPTIONS 请求校验 Origin/Referer 头是否为本站，拒绝跨站状态变更请求——CSRF 防护，Metis 审查补入）；api/auth.py（POST /api/auth/register、/login、/logout、GET /api/auth/me）；schema 用 pydantic 校验（用户名 3-20 字符、密码 ≥6）。Must NOT: 不使用明文密码；不把 token 放 localStorage；不实现角色权限逻辑（下一任务）。
   Parallelization: Wave 2 | Blocked by: 2 | Blocks: 6,7,16
   References (executor has NO interview context - be exhaustive): plan.md §九（权限系统，role 枚举）；§十三 API 概要 /auth 行；Metis 审查 E12（httpOnly cookie 无 CSRF 防护风险，已补 SameSite+Origin 校验）
@@ -132,7 +132,7 @@ Your next move: 批准后运行 `$start-work competition-web` 开始执行（或
   QA scenarios: happy — 完整注册-登录-me-登出链断言 200；failure — 已存在用户名注册返回 400、错误密码登录返回 401、伪造 Origin 的 POST 返回 403，证据 .omo/evidence/task-4-competition-web.txt
   Commit: Y | feat: 账号注册登录与 JWT Cookie 会话
 
-- [ ] 5. 权限系统：三角色 RBAC 依赖注入 + 用户管理 API
+- [x] 5. 权限系统：三角色 RBAC 依赖注入 + 用户管理 API
   What to do / Must NOT do: core/rbac.py（get_current_user 依赖、require_role("admin"/"referee"/"player") 依赖、User.role 枚举 admin/referee/player）；api/admin_users.py（仅 admin：GET/PATCH /api/admin/users 列表/封禁/改角色/重置密码）。Must NOT: 角色逻辑不写在业务路由内联判断；不允许越权操作。
   Parallelization: Wave 2 | Blocked by: 4 | Blocks: 7,22
   References (executor has NO interview context - be exhaustive): plan.md §九（RBAC 表）；demo 无鉴权可对照（demo/api/routes.py:14-176 全部无认证）
@@ -140,7 +140,7 @@ Your next move: 批准后运行 `$start-work competition-web` 开始执行（或
   QA scenarios: happy — admin 列表/封禁/改角色成功；failure — player 角色访问 admin 接口 403、无 cookie 401，证据 .omo/evidence/task-5-competition-web.txt
   Commit: Y | feat: 三角色 RBAC 与用户管理
 
-- [ ] 6. 队伍模块：Team/TeamMember 模型 + 建队/加人/退队（≤3 人）
+- [x] 6. 队伍模块：Team/TeamMember 模型 + 建队/加人/退队（≤3 人）
   What to do / Must NOT do: models/team.py（Team: id, name unique, captain_id, created_at；TeamMember: team_id, user_id）；api/teams.py（POST /api/teams 建队、POST /api/teams/{id}/members 加人、DELETE 退队）；校验人数 ≤3、队长权限、每人限 1 队。Must NOT: 不实现报名（下一任务）；不做队伍解散审批流。
   Parallelization: Wave 3 | Blocked by: 2,4 | Blocks: 7,8,9
   References (executor has NO interview context - be exhaustive): plan.md §六（数据模型 Team/TeamMember）；§二 2.1（参赛单位模型）

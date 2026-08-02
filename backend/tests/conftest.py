@@ -2,8 +2,10 @@ import os
 import tempfile
 
 # Point DATABASE_URL at an isolated temp file BEFORE importing app modules,
-# so tests never touch the real development database.
-_tmp_db = os.path.join(tempfile.gettempdir(), "competition_test.db")
+# so tests never touch the real development database. The file is unique per
+# process (PID in the name): concurrent pytest runs (e.g. parallel workers on
+# different todos) would otherwise drop/create each other's tables mid-flight.
+_tmp_db = os.path.join(tempfile.gettempdir(), f"competition_test_{os.getpid()}.db")
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db}"
 os.environ["DB_PATH"] = _tmp_db
 

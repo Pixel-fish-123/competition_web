@@ -1,0 +1,412 @@
+from __future__ import annotations
+import time
+from collections import deque
+from dataclasses import dataclass, field
+from typing import Any
+
+from .board import Cell, build_cells
+
+TIME_LIMIT_MINUTES = 25.0
+
+
+@dataclass
+class GameEvent:
+    time: str
+    text: str
+    etype: str = "occupy"
+
+    def to_dict(self) -> dict:
+        return {"time": self.time, "text": self.text, "type": self.etype}
+
+
+@dataclass
+class GameController:
+    cells: list[Cell] = field(default_factory=list)
+    defender_score: float = 0.0
+    attacker_score: float = 0.0
+    encircled_cells: set[int] = field(default_factory=set)
+    encirclement_active: bool = False
+    l1_high_score: int | None = None
+    l1_high_tp: float | None = None
+    l1_high_team: str | None = None
+    game_over: bool = False
+    winner: str | None = None
+    win_type: str | None = None
+    elapsed_minutes: float = 0.0
+    events: list[GameEvent] = field(default_factory=list)
+    started: bool = False
+    _action_counter: int = 0
+    _start_ts: float = 0.0
+    time_limit_minutes: float = TIME_LIMIT_MINUTES
+
+    def init(self, cells_data: list[dict] | None = None) -> None:
+        self.cells = build_cells(cells_data)
+        self.defender_score = 0.0
+        self.attacker_score = 0.0
+        self.encircled_cells = set()
+        self.encirclement_active = False
+        self.l1_high_score = None
+        self.l1_high_tp = None
+        self.l1_high_team = None
+        self.game_over = False
+        self.winner = None
+        self.win_type = None
+        self.elapsed_minutes = 0.0
+        self.events = []
+        self.started = True
+        self._action_counter = 0
+        self._start_ts = time.time()
+        self._log("游戏初始化完成", "system")
+
+    def elapsed(self) -> float:
+        if not self.started or self.game_over:
+            return self.elapsed_minutes
+        return (time.time() - self._start_ts) / 60.0
+
+    def _sync_elapsed(self) -> None:
+        if self.started and not self.game_over:
+            self.elapsed_minutes = (time.time() - self._start_ts) / 60.0
+
+    def _check_timeout(self) -> bool:
+        self._sync_elapsed()
+        if self.elapsed_minutes >= self.time_limit_minutes and not self.game_over:
+            self.end_game()
+            return True
+        return False
+
+    def _log(self, text: str, etype: str = "occupy") -> None:
+        self._action_counter += 1
+        mm = self._action_counter // 60
+        ss = self._action_counter % 60
+        self.events.insert(0, GameEvent(f"{mm:02d}:{ss:02d}", text, etype))
+        if len(self.events) > 200:
+            self.events = self.events[:200]
+
+    def _ensure_started(self) -> bool:
+        if not self.started:
+            self._log("游戏未初始化", "system")
+            return False
+        if self.game_over:
+            self._log("游戏已结束", "system")
+            return False
+        if self._check_timeout():
+            return False
+        return True
+
+    def occupy(self, cell_id: int, team: str, score: int | None = None,
+               tp: float | None = None) -> bool:
+        if not self._ensure_started():
+            return False
+        if cell_id < 0 or cell_id > 20:
+            self._log(f"非法格子 ID: {cell_id}", "system")
+            return False
+        if team not in ("defender", "attacker"):
+            self._log(f"非法阵营: {team}", "system")
+            return False
+
+        cell = self.cells[cell_id]
+
+        if cell_id == 0:
+            return self._occupy_l1(team, score, tp)
+
+        if cell.owner == team:
+            self._log(f"{self._team_cn(team)} 已占领 L{cell.layer}格{self._idx_in_layer(cell_id)}，忽略", "system")
+            return False
+
+        if cell.owner is not None:
+            self._log(f"L{cell.layer}格{self._idx_in_layer(cell_id)} 已被占领，忽略", "system")
+            return False
+
+        cell.owner = team
+        cell.activated = False
+        self._log(
+            f"{self._team_cn(team)} 占领 L{cell.layer}格{self._idx_in_layer(cell_id)} (+{cell.total_score})",
+            "occupy",
+        )
+        self._run_update_chain()
+        return True
+
+    def _occupy_l1(self, team: str, score: int | None, tp: float | None) -> bool:
+        cell = self.cells[0]
+        if score is None:
+            self._log("L1 占领需要 score 参数", "system")
+            return False
+
+        if (self.l1_high_score is None
+                or score > self.l1_high_score
+                or (score == self.l1_high_score
+                    and tp is not None
+                    and self.l1_high_tp is not None
+                    and tp > self.l1_high_tp)):
+            self.l1_high_score = score
+            self.l1_high_tp = tp if tp is not None else self.l1_high_tp
+            self.l1_high_team = team
+            cell.owner = team
+            self._log(
+                f"{self._team_cn(team)} 占领 L1源头 (+{cell.total_score}) 分数{score}",
+                "l1",
+            )
+        else:
+            self._log(
+                f"{self._team_cn(team)} L1挑战失败 ({score} <= {self.l1_high_score})",
+                "l1",
+            )
+        self._run_update_chain()
+        return True
+
+    def cancel_occupy(self, cell_id: int) -> bool:
+        if not self._ensure_started():
+            return False
+        if cell_id < 0 or cell_id > 20:
+            return False
+        cell = self.cells[cell_id]
+        if cell.owner is None:
+            return False
+        prev = self._team_cn(cell.owner)
+        cell.owner = None
+        cell.activated = False
+        if cell_id == 0:
+            self.l1_high_score = None
+            self.l1_high_tp = None
+            self.l1_high_team = None
+        self._log(f"取消 L{cell.layer}格{self._idx_in_layer(cell_id)} 的{prev}占领", "system")
+        self._run_update_chain()
+        return True
+
+    def reoccupy(self, cell_id: int) -> bool:
+        if not self._ensure_started():
+            return False
+        if cell_id not in self.encircled_cells:
+            self._log(f"格子 {cell_id} 不在包围区内", "system")
+            return False
+        cell = self.cells[cell_id]
+        if cell.owner != "attacker":
+            self._log(f"格子 {cell_id} 非进攻方占领，无法重占", "system")
+            return False
+        cell.owner = "defender"
+        cell.activated = False
+        self._log(
+            f"守护者 重占 L{cell.layer}格{self._idx_in_layer(cell_id)} (+{cell.total_score})",
+            "encircle",
+        )
+        self._run_update_chain()
+        return True
+
+    def end_game(self) -> bool:
+        if not self.started:
+            return False
+        self._sync_elapsed()
+        self.game_over = True
+        self.win_type = "timeout"
+        if self.defender_score > self.attacker_score:
+            self.winner = "defender"
+        elif self.attacker_score > self.defender_score:
+            self.winner = "attacker"
+        else:
+            self.winner = "draw"
+        self._log(
+            f"游戏结束 - {self._team_cn(self.winner) if self.winner != 'draw' else '平局'} "
+            f"(守{int(self.defender_score)} : 掠{int(self.attacker_score)})",
+            "system",
+        )
+        return True
+
+    def _run_update_chain(self) -> None:
+        self.update_activation()
+        self.check_encirclement()
+        self.recalc_scores()
+        self.check_top_victory()
+        if not self.game_over:
+            self._check_timeout()
+
+    def update_activation(self) -> None:
+        for c in self.cells:
+            if not c.is_energy:
+                c.activated = False
+
+        for e in self.cells[21:]:
+            for nid in e.neighbors:
+                n = self.cells[nid]
+                if n.owner == "attacker" and not n.activated:
+                    queue = deque([nid])
+                    n.activated = True
+                    while queue:
+                        cur = self.cells[queue.popleft()]
+                        for nn in cur.neighbors:
+                            nb = self.cells[nn]
+                            if (nb.owner == "attacker"
+                                    and not nb.is_energy
+                                    and not nb.activated):
+                                nb.activated = True
+                                queue.append(nn)
+
+    def check_encirclement(self) -> None:
+        visited: set[int] = {0}
+        queue = deque([0])
+        failed = False
+        while queue:
+            cur = self.cells[queue.popleft()]
+            for nid in cur.neighbors:
+                if nid in visited:
+                    continue
+                nb = self.cells[nid]
+                if nb.owner == "defender":
+                    continue
+                if nb.is_energy:
+                    failed = True
+                    break
+                if nb.owner == "attacker" and nb.activated:
+                    failed = True
+                    break
+                visited.add(nid)
+                queue.append(nid)
+            if failed:
+                break
+
+        if failed:
+            if self.encirclement_active:
+                self._log("包围解除", "encircle")
+            self.encirclement_active = False
+            self.encircled_cells = set()
+            return
+
+        encircled = {
+            i for i in visited
+            if self.cells[i].owner != "defender"
+            and not self.cells[i].is_energy
+        }
+        if not self.encirclement_active and encircled:
+            self._log(f"包围成立！{len(encircled)}格被围", "encircle")
+        self.encirclement_active = bool(encircled)
+        self.encircled_cells = encircled
+
+    def recalc_scores(self) -> None:
+        def_score = 0
+        atk_score = 0
+
+        for cell in self.cells:
+            if not cell.is_energy:
+                cell.energy_bonus = 0
+
+        for cell in self.cells:
+            if cell.is_energy:
+                continue
+            if cell.owner == "defender":
+                def_score += cell.total_score
+            elif cell.owner == "attacker" and cell.id == 0:
+                atk_score += cell.total_score
+
+        visited: set[int] = set()
+        for cell in self.cells:
+            if cell.is_energy:
+                continue
+            if (cell.owner == "attacker"
+                    and cell.activated
+                    and cell.id != 0
+                    and cell.id not in visited):
+                block = self._bfs_attacker_block(cell.id)
+                visited |= block
+                energy_count = self._count_energy_contacts(block)
+                bonus = min(energy_count - 1, 2) if energy_count >= 1 else 0
+                for bid in block:
+                    self.cells[bid].energy_bonus = bonus
+                    atk_score += self.cells[bid].total_score + bonus
+
+        self.defender_score = float(def_score)
+        self.attacker_score = float(atk_score)
+
+    def _bfs_attacker_block(self, start: int) -> set[int]:
+        block: set[int] = set()
+        queue = deque([start])
+        block.add(start)
+        while queue:
+            cur = self.cells[queue.popleft()]
+            for nid in cur.neighbors:
+                nb = self.cells[nid]
+                if (nid not in block
+                        and nb.owner == "attacker"
+                        and nb.activated
+                        and not nb.is_energy):
+                    block.add(nid)
+                    queue.append(nid)
+        return block
+
+    def _count_energy_contacts(self, block: set[int]) -> int:
+        energy_ids: set[int] = set()
+        for bid in block:
+            for nid in self.cells[bid].neighbors:
+                if self.cells[nid].is_energy:
+                    energy_ids.add(nid)
+        return len(energy_ids)
+
+    def check_top_victory(self) -> None:
+        if self.game_over:
+            return
+        l1 = self.cells[0]
+        if l1.owner == "attacker" and l1.activated:
+            self.game_over = True
+            self.winner = "attacker"
+            self.win_type = "top"
+            self._log(
+                f"进攻方顶端直胜！直接获胜",
+                "victory",
+            )
+
+    def _idx_in_layer(self, cell_id: int) -> int:
+        layer = self.cells[cell_id].layer
+        start = layer * (layer - 1) // 2
+        return cell_id - start
+
+    def _team_cn(self, team: str | None) -> str:
+        if team == "defender":
+            return "守护者"
+        if team == "attacker":
+            return "掠夺者"
+        if team == "draw":
+            return "平局"
+        return "未知"
+
+    def get_scores(self) -> dict:
+        return {"defender": self.defender_score, "attacker": self.attacker_score}
+
+    def get_board(self) -> list[dict]:
+        return [c.to_dict() for c in self.cells]
+
+    def get_encircled(self) -> list[int]:
+        return sorted(self.encircled_cells)
+
+    def get_l1_status(self) -> dict:
+        return {
+            "holder": self.l1_high_team,
+            "high_score": self.l1_high_score,
+            "high_tp": self.l1_high_tp,
+        }
+
+    def export_tasks(self) -> list[dict]:
+        return [
+            {
+                "id": c.id,
+                "diff_score": c.diff_score,
+                "difficulty_label": c.difficulty_label,
+                "task_name": c.task_name,
+                "task_bonus": c.task_bonus,
+                "total_score": c.total_score,
+            }
+            for c in self.cells[:21]
+        ]
+
+    def to_state_dict(self) -> dict[str, Any]:
+        return {
+            "board": self.get_board(),
+            "scores": self.get_scores(),
+            "encircled": self.get_encircled(),
+            "encirclement_active": self.encirclement_active,
+            "l1": self.get_l1_status(),
+            "elapsed": round(self.elapsed(), 2),
+            "time_limit": self.time_limit_minutes,
+            "events": [e.to_dict() for e in self.events[:50]],
+            "game_over": self.game_over,
+            "winner": self.winner,
+            "win_type": self.win_type,
+            "started": self.started,
+        }

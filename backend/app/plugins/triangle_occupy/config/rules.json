@@ -1,0 +1,29 @@
+{
+  "difficulty_score": {
+    "15+": 15,
+    "15": 10,
+    "14": 8,
+    "13": 6,
+    "12": 5,
+    "11": 4,
+    "9": 3,
+    "8": 2
+  },
+  "tasks": [
+    {"name": "MM", "weight": 1, "bonus": 10},
+    {"name": "tp99.5 / 99.5w", "weight": 1, "bonus": 10},
+    {"name": "tp99 / 97w", "weight": 2, "bonus": 8},
+    {"name": "tp98 / 95w", "weight": 5, "bonus": 6},
+    {"name": "tp97 / 93w", "weight": 8, "bonus": 4},
+    {"name": "tp96 / 92w", "weight": 8, "bonus": 3},
+    {"name": "tp95 / 91w", "weight": 6, "bonus": 1},
+    {"name": "90w", "weight": 3, "bonus": 0},
+    {"name": "FULL COMBO", "weight": 2, "bonus": 7},
+    {"name": "三位一体", "weight": 5, "bonus": 5}
+  ],
+  "templates": {
+    "A": {"top": "high", "mid": "medium", "shallow": "low", "energy": "medium"},
+    "B": {"top": "medium", "mid": "low", "shallow": "medium", "energy": "high"},
+    "C": {"top": "medium", "mid": "high", "shallow": "medium", "energy": "low"}
+  }
+}

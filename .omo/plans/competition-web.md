@@ -108,7 +108,7 @@ Your next move: 批准后运行 `$start-work competition-web` 开始执行（或
   QA scenarios (name the exact tool + invocation): happy — 运行 `git log --oneline` 输出至少 1 条提交；failure — 在 requirements.txt 注入不存在的包名 `nonexistent-pkg-xyz` 后 `pip install -r requirements.txt` 返回非零退出码，证据 .omo/evidence/task-1-competition-web.txt
   Commit: Y | chore: 初始化仓库骨架与依赖清单
 
-- [ ] 2. 后端骨架：FastAPI 应用入口 + 配置 + SQLite 连接 + /api/health
+- [x] 2. 后端骨架：FastAPI 应用入口 + 配置 + SQLite 连接 + /api/health
   What to do / Must NOT do: 创建 backend/app/main.py（FastAPI 实例、CORS 中间件、路由挂载、静态文件托管目录预留）、config.py（pydantic-settings 读 .env：SECRET_KEY、DB_PATH、DATABASE_URL=sqlite:///./competition.db）、db.py（SQLAlchemy engine + SessionLocal + Base + WAL PRAGMA）、health 路由返回 {"status":"ok"}。Must NOT: 不实现任何业务路由；不在本任务引入前端。
   Parallelization: Wave 1 | Blocked by: 1 | Blocks: 4,5,6,10,11,16,17
   References (executor has NO interview context - be exhaustive): demo/main.py:1-24（FastAPI 入口+StaticFiles 模式可参考）；plan.md §五（架构图与目录结构）
@@ -116,7 +116,7 @@ Your next move: 批准后运行 `$start-work competition-web` 开始执行（或
   QA scenarios: happy — curl /api/health 返回 200 + {"status":"ok"}；failure — 用错误路径 `curl http://127.0.0.1:8000/api/healthx` 返回 404，证据 .omo/evidence/task-2-competition-web.txt
   Commit: Y | feat: 后端骨架与健康检查
 
-- [ ] 3. 前端骨架：Vite + Vue3 + Pinia + Router + Element Plus + 代理
+- [x] 3. 前端骨架：Vite + Vue3 + Pinia + Router + Element Plus + 代理
   What to do / Must NOT do: 在 frontend/ 用 Vite 创建 Vue3+TS 项目；安装 pinia、vue-router、element-plus、axios；配置 vite.config.ts 代理 /api 与 /ws → http://127.0.0.1:8000；创建基础布局（Header/Footer）、路由占位页（/、/login、/competitions、/admin、/profile）；package.json scripts: dev/build。Must NOT: 不实现业务页面细节；不引入多余 UI 库。
   Parallelization: Wave 1 | Blocked by: 1 | Blocks: 19,22,23,24
   References (executor has NO interview context - be exhaustive): plan.md §三（前端选型表）、§五（目录结构 frontend/src/views）

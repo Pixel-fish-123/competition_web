@@ -156,7 +156,7 @@ Your next move: 批准后运行 `$start-work competition-web` 开始执行（或
   QA scenarios: happy — 个人+队伍报名均成功入库；failure — 同一用户对同一比赛重复报名 400、满员后报名 400，证据 .omo/evidence/task-7-competition-web.txt
   Commit: Y | feat: 报名与参赛单位
 
-- [ ] 8. 比赛管理：Competition 模型 + CRUD + 状态机 + 赛制/玩法/积分配置 + 裁判指派
+- [x] 8. 比赛管理：Competition 模型 + CRUD + 状态机 + 赛制/玩法/积分配置 + 裁判指派
   What to do / Must NOT do: models/competition.py（Competition: id, name, banner_url, description, participant_type, tournament_format, format_config JSON, points_rule JSON, gameplay_plugin, song_lib JSON, max_participants int 默认 50, referee_ids JSON（裁判组，Metis E3 修正）, status, start_time/end_time, created_by）；状态机 draft→registration→ongoing→finished/cancelled；api/competitions.py（admin CRUD + 状态流转 + GET 公开列表/详情 + **admin 指派裁判 referee_ids**）；创建时校验 tournament_format 与 gameplay_plugin 是合法枚举、referee_ids 均存在且角色为 referee。Must NOT: 不实现赛制引擎（下一任务）；不做报名与比赛的实体关联逻辑（报名任务已建表）；**出线名额/第二阶段不在 scope（Metis S6 移除）**。
   Parallelization: Wave 4 | Blocked by: 7 | Blocks: 10,11
   References (executor has NO interview context - be exhaustive): plan.md §六（Competition 字段）、§七（赛制枚举）、§二 2.2；Metis 审查 E3（裁判指派流程缺失，本 todo 固化 referee_ids）与 E5/S6
@@ -164,7 +164,7 @@ Your next move: 批准后运行 `$start-work competition-web` 开始执行（或
   QA scenarios: happy — admin 创建含三种赛制配置的比赛成功；failure — 非法 tournament_format 创建 422/400、指派 player 角色当裁判 400，证据 .omo/evidence/task-8-competition-web.txt
   Commit: Y | feat: 比赛管理与状态机
 
-- [ ] 9. 分组循环赛引擎 RoundRobinEngine
+- [x] 9. 分组循环赛引擎 RoundRobinEngine
   What to do / Must NOT do: tournaments/base.py（TournamentEngine ABC: generate_schedule/record_result/standings/is_complete/next_round）；tournaments/round_robin.py（标准轮转法生成组内 1v1 赛程，支持 group_size 配置）；**平局语义（Metis E1）：draw 计双方各 0.5 胜场**；**轮空语义（Metis E2）：组内奇数队伍时标准轮转法自动产生 bye，轮空计 1 胜场、0 净胜分**；**同分决胜（Metis V1）：胜场→净胜分→相互胜负→种子 id 升序**；纯逻辑无 I/O，输入参赛单位 id 列表+配置，输出轮次/对阵/排名。Must NOT: 不写数据库调用；不处理瑞士轮/淘汰赛（各自独立任务）；不做"出线名额"第二阶段（Metis S6：单场单一赛制，出线配置已从 scope 移除）。
   Parallelization: Wave 5 | Blocked by: 7,8 | Blocks: 18
   References (executor has NO interview context - be exhaustive): plan.md §七（RoundRobinEngine 行）；算法标准：循环赛轮转法（固定 1 号位轮转）；Metis 审查 E1/E2/V1（平局/轮空/同分规则，本 todo 已固化决策）
@@ -172,7 +172,7 @@ Your next move: 批准后运行 `$start-work competition-web` 开始执行（或
   QA scenarios: happy — 奇/偶数队伍数编排断言正确、平局对局排名正确；failure — 参赛单位不足 2 抛 ValueError、非法 group_size 抛 ValueError，证据 .omo/evidence/task-9-competition-web.txt
   Commit: Y | feat: 分组循环赛引擎
 
-- [ ] 10. 瑞士轮引擎 SwissEngine
+- [x] 10. 瑞士轮引擎 SwissEngine
   What to do / Must NOT do: tournaments/swiss.py（按积分相近配对、同分优先、不重复对阵；轮数可配默认 **min(ceil(log2(n))+1, 7)**——与 plan.md 建议 5~6 轮对齐的上限约束，Metis C3 修正）；**平局语义：draw 双方各 0.5 分**；**轮空语义：奇数队轮空计 1 分（视为胜）**；**同分决胜：积分→对手分(Buchholz)→净胜分→种子 id**；实现 record_result 后自动推进下一轮。Must NOT: 不做种子/淘汰逻辑；不做数据库持久化；不引入随机配对（必须确定性算法）。
   Parallelization: Wave 5 | Blocked by: 7,8 | Blocks: 18
   References (executor has NO interview context - be exhaustive): plan.md §七（SwissEngine 行，默认轮数建议）；Metis 审查 C3（推荐轮数与公式冲突，已加上限修正）与 E1/E2
@@ -180,7 +180,7 @@ Your next move: 批准后运行 `$start-work competition-web` 开始执行（或
   QA scenarios: happy — 8 队跑完 4 轮排名合理（冠军全胜）；failure — 轮数配置为 0 抛 ValueError、同分对局重复配对被拒绝，证据 .omo/evidence/task-10-competition-web.txt
   Commit: Y | feat: 瑞士轮引擎
 
-- [ ] 11. 单败淘汰引擎 SingleElimEngine
+- [x] 11. 单败淘汰引擎 SingleElimEngine
   What to do / Must NOT do: tournaments/single_elim.py（标准签表：2 的幂补位 bye 轮空、种子排序可选、可配季军赛；record_result 推进；半决赛前种子 1/2 分列两端）；**平局语义（Metis E1）：单败淘汰不接受 draw——若插件返回 draw，由裁判在 API 层指定胜者（必填 winner 参数），引擎校验 winner ∈ {a,b}**；胜者晋级、败者出局（除季军赛）。Must NOT: 不做种子算法的复杂变体；不做复活赛；不支持 draw 结果。
   Parallelization: Wave 5 | Blocked by: 7,8 | Blocks: 18
   References (executor has NO interview context - be exhaustive): plan.md §七（SingleElimEngine 行）；Metis 审查 E1（draw 语义固化：单败淘汰不允许 draw，裁判必填胜者）
@@ -331,3 +331,8 @@ Your next move: 批准后运行 `$start-work competition-web` 开始执行（或
 - 管理后台四块齐备：选手管理、权限分配（三角色+比赛裁判组）、活动积分、异常流量监控
 - 部署产物齐全：Dockerfile + docker-compose.yml + Caddyfile + backup.sh + backup_restore_test.sh + 部署手册（A/B 两方案）+ 玩法模板开发规范
 - 全部代码在 git 仓库中，main 分支可部署，里程碑 tag 存在
+
+## Execution ledger
+
+- 2026-08-03 todo 8: {"event":"task-completed-claim","plan":".omo/plans/competition-web.md","task":8,"session_id":"codex:competition-web-start-work","commands":["pytest","uvicorn","curl"],"artifact":".omo/evidence/task-8-competition-web.txt","adversarial_classes":{"misleading_success_output":"pytest/curl real output","flaky_tests":"pytest twice","hung_or_long_commands":"uvicorn killed"},"cleanup":["uvicorn killed","smoke db deleted"]}
+- 2026-08-03 todo 9: {"event":"task-completed-claim","plan":".omo/plans/competition-web.md","task":9,"session_id":"codex:competition-web-start-work","commands":["pytest"],"artifact":".omo/evidence/task-9-competition-web.txt","adversarial_classes":{"misleading_success_output":"pytest real output","flaky_tests":"pytest twice"},"cleanup":[]}

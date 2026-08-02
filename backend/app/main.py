@@ -12,6 +12,7 @@ import app.models.team  # noqa: F401
 import app.models.user  # noqa: F401
 from app.api.admin_users import router as admin_users_router
 from app.api.auth import router as auth_router
+from app.api.competitions import router as competitions_router
 from app.api.health import router as health_router
 from app.api.registrations import router as registrations_router
 from app.api.teams import router as teams_router
@@ -46,6 +47,7 @@ app.include_router(auth_router)
 app.include_router(admin_users_router)
 app.include_router(teams_router)
 app.include_router(registrations_router)
+app.include_router(competitions_router)
 
 # Mount static files from frontend-dist if it exists at startup.
 # The directory may not exist yet (frontend not built); do NOT create it.

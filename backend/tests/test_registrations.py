@@ -1,7 +1,8 @@
 """TDD tests for the registration endpoints (individual / team / capacity).
 
-Competition rows are created directly via ``SessionLocal`` — the full
-Competition admin CRUD is todo 8, so tests seed the minimal placeholder model.
+Competition rows are created directly via ``SessionLocal`` with a minimal
+field set (the full admin CRUD lives in tests/test_competitions.py); only the
+fields registration reads are seeded, plus the now-required ``created_by``.
 
 Multi-user scenarios use a single TestClient whose cookie jar is swapped
 between users (register auto-logs-in and sets the "token" cookie), exactly
@@ -39,6 +40,7 @@ def _create_competition(
             max_participants=max_participants,
             status=status,
             participant_type=participant_type,
+            created_by=1,  # FK required since todo 8; SQLite does not enforce it
         )
         db.add(comp)
         db.commit()

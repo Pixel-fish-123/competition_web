@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.ws_manager import manager
 from app.models.competition import Competition
 from app.models.match import GameSession, Match
 from app.models.registration import Registration
@@ -240,6 +241,19 @@ def start_match(
     match.referee_id = referee.id
     db.commit()
     db.refresh(session)
+
+    # todo 15：开赛后把最新会话状态实时推送给已订阅该对局的 WS 客户端。
+    plugin = registry.get(session.plugin_name)
+    state = session.state_json
+    if plugin is not None:
+        try:
+            state = plugin.get_state(session.id, session.state_json)
+        except ValueError:
+            pass
+    manager.broadcast(
+        match.id,
+        {"type": "state_update", "session_id": session.id, "state": state},
+    )
     return session
 
 

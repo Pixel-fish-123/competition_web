@@ -18,6 +18,7 @@ from app.api.health import router as health_router
 from app.api.matches import router as matches_router
 from app.api.registrations import router as registrations_router
 from app.api.teams import router as teams_router
+from app.api.ws import router as ws_router
 from app.core.csrf import CSRFMiddleware
 from app.db import Base, engine
 from app.plugins.registry import register_default_plugins
@@ -57,6 +58,7 @@ app.include_router(teams_router)
 app.include_router(registrations_router)
 app.include_router(competitions_router)
 app.include_router(matches_router)
+app.include_router(ws_router)
 
 # Mount static files from frontend-dist if it exists at startup.
 # The directory may not exist yet (frontend not built); do NOT create it.

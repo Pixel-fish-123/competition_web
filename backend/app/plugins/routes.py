@@ -24,12 +24,14 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from app.core.rbac import get_current_user, require_referee
+from app.core.ws_manager import manager
 from app.models.user import User
 from app.plugins.base import GameplayPlugin
 from app.plugins.registry import registry
 
 # 会话存储（内存版，todo 14 换 DB 持久化）：
-#   session_id -> {"plugin": GameplayPlugin, "state": dict}
+#   session_id -> {"plugin": GameplayPlugin, "state": dict, "match_id": int}
+#   match_id 供 todo 15 的 WS 广播定位订阅频道（对局状态实时推送）。
 _sessions: dict[int, dict] = {}
 _session_seq = itertools.count(1)
 
@@ -79,7 +81,11 @@ def _build_plugin_router(plugin: GameplayPlugin) -> APIRouter:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         session_id = next(_session_seq)
-        _sessions[session_id] = {"plugin": plugin, "state": state}
+        _sessions[session_id] = {
+            "plugin": plugin,
+            "state": state,
+            "match_id": payload.match_id,
+        }
         return {"session_id": session_id, "state": state}
 
     @router.get("/session/{session_id}/state")
@@ -115,6 +121,15 @@ def _build_plugin_router(plugin: GameplayPlugin) -> APIRouter:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         session["state"] = new_state
+        # todo 15：玩法操作后把最新公开状态广播给该对局的 WS 订阅者。
+        try:
+            view = plugin.get_state(session_id, new_state)
+        except ValueError:
+            view = new_state
+        manager.broadcast(
+            session.get("match_id"),
+            {"type": "state_update", "session_id": session_id, "state": view},
+        )
         return {"ok": True, "state": new_state}
 
     @router.post("/session/{session_id}/end")
@@ -129,6 +144,11 @@ def _build_plugin_router(plugin: GameplayPlugin) -> APIRouter:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         _sessions.pop(session_id, None)
+        # todo 15：会话结束广播，通知订阅者对局已完结。
+        manager.broadcast(
+            session.get("match_id"),
+            {"type": "session_ended", "session_id": session_id},
+        )
         return {"session_id": session_id, "result": result}
 
     return router

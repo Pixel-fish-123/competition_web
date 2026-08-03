@@ -76,7 +76,7 @@ function kindLabel(k: string) {
   return KIND_LABELS[k] || k
 }
 function kindType(k: string) {
-  return (KIND_TYPES[k] as any) || 'info'
+  return KIND_TYPES[k] || 'info'
 }
 function formatTime(t: string) {
   return new Date(t).toLocaleString('zh-CN')

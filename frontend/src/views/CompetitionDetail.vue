@@ -131,33 +131,11 @@
       <!-- 赛程 / 对局列表 -->
       <section class="comp-detail__section">
         <h2>赛程 / 对局</h2>
-        <div v-if="rounds.length === 0" class="comp-detail__empty">
-          <el-empty description="暂无对局" />
-        </div>
-        <div v-for="round in rounds" :key="round.round_id" class="comp-detail__round">
-          <h3>第 {{ round.round_id }} 轮</h3>
-          <div class="comp-detail__matches">
-            <el-card
-              v-for="m in round.matches"
-              :key="m.id"
-              class="match-card"
-              shadow="hover"
-              @click="goMatch(m)"
-            >
-              <div class="match-card__row">
-                <span class="match-card__name">{{ participantName(m, 'a') }}</span>
-                <span class="match-card__vs">VS</span>
-                <span class="match-card__name">{{ participantName(m, 'b') }}</span>
-              </div>
-              <div class="match-card__foot">
-                <el-tag size="small" :type="matchStatusType(m.status)">
-                  {{ matchStatusLabel(m.status) }}
-                </el-tag>
-                <span v-if="m.result" class="match-card__result">{{ resultText(m) }}</span>
-              </div>
-            </el-card>
-          </div>
-        </div>
+        <ScheduleChart
+          :rounds="rounds"
+          :format="competition.tournament_format"
+          @select="goMatch"
+        />
       </section>
 
       <!-- 场次排名 -->
@@ -178,11 +156,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import http from '../api/http'
 import { useAuthStore } from '../stores/auth'
+import ScheduleChart from '../components/ScheduleChart.vue'
 
 interface Competition {
   id: number
@@ -244,7 +223,7 @@ const auth = useAuthStore()
 const cid = computed(() => Number(route.params.cid))
 
 const competition = ref<Competition | null>(null)
-const loading = ref(false)
+const loading = ref(true)
 const registrations = ref<Registration[]>([])
 const regLoading = ref(false)
 const rounds = ref<RoundGroup[]>([])
@@ -283,7 +262,7 @@ function statusLabel(s: string) {
   return STATUS_LABELS[s] || s
 }
 function statusType(s: string) {
-  return (STATUS_TYPES[s] as any) || 'info'
+  return STATUS_TYPES[s] || 'info'
 }
 function participantLabel(t: string) {
   if (t === 'team') return '团队赛'
@@ -307,16 +286,6 @@ function regStatusLabel(s: string) {
   if (s === 'rejected') return '已拒绝'
   return s
 }
-function matchStatusLabel(s: string) {
-  if (s === 'in_progress') return '进行中'
-  if (s === 'finished') return '已结束'
-  return '未开始'
-}
-function matchStatusType(s: string) {
-  if (s === 'in_progress') return 'success'
-  if (s === 'finished') return 'info'
-  return 'warning'
-}
 function formatTime(t: string) {
   return new Date(t).toLocaleString('zh-CN')
 }
@@ -339,27 +308,6 @@ const formatSummary = computed(() => {
   }
   return `赛制：${f}`
 })
-
-function participantName(m: MatchInfo, side: 'a' | 'b') {
-  const explicit = side === 'a' ? m.participant_a_name : m.participant_b_name
-  if (explicit) return explicit
-  const id = side === 'a' ? m.participant_a : m.participant_b
-  if (id === null) return '待定'
-  const reg = registrations.value.find(
-    (r) => r.team_id === id || r.user_id === id
-  )
-  if (reg) return reg.team_id ? `队伍#${reg.team_id}` : `选手#${reg.user_id}`
-  return `参赛者#${id}`
-}
-
-function resultText(m: MatchInfo) {
-  if (!m.result) return ''
-  const winner = m.result.winner
-  if (winner === null || winner === undefined) return '平局'
-  const w = Number(winner)
-  const side = w === m.participant_a ? 'a' : w === m.participant_b ? 'b' : null
-  return `胜者：${side ? participantName(m, side) : `参赛者#${w}`}`
-}
 
 function goMatch(m: MatchInfo) {
   router.push(`/competitions/${cid.value}/matches/${m.id}`)
@@ -482,6 +430,17 @@ onMounted(async () => {
   await loadRankings()
   if (auth.isLoggedIn) await loadMyTeam()
 })
+
+// 组件复用时（cid 变化）重新加载数据，避免展示陈旧内容
+watch(() => route.params.cid, async (newCid) => {
+  if (newCid) {
+    await loadCompetition()
+    await loadRegistrations()
+    await loadMatches()
+    await loadRankings()
+    if (auth.isLoggedIn) await loadMyTeam()
+  }
+})
 </script>
 
 <style scoped>
@@ -567,51 +526,5 @@ onMounted(async () => {
 .comp-detail__hint {
   color: #909399;
   font-size: 13px;
-}
-.comp-detail__empty {
-  padding: 8px 0;
-}
-.comp-detail__round {
-  margin-bottom: 20px;
-}
-.comp-detail__round h3 {
-  margin: 0 0 10px;
-  font-size: 16px;
-}
-.comp-detail__matches {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px;
-}
-.match-card {
-  cursor: pointer;
-}
-.match-card__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.match-card__name {
-  flex: 1;
-  text-align: center;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.match-card__vs {
-  color: #c0c4cc;
-  font-size: 12px;
-}
-.match-card__foot {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-.match-card__result {
-  font-size: 12px;
-  color: #909399;
 }
 </style>

@@ -186,6 +186,15 @@ interface LockedItem {
 }
 interface LogItem {
   id: number
+  user_id: number | null
+  action: string
+  ip: string | null
+  user_agent: string | null
+  detail: { username?: string } | null
+  created_at: string | null
+}
+interface LogRow {
+  id: number
   action: string
   ip: string
   username: string
@@ -199,7 +208,7 @@ const summary = ref<{ since_24h: SummaryBucket; since_7d: SummaryBucket }>({
 })
 const failed = ref<FailedLogins>({ top_ips: [], top_usernames: [] })
 const locked = ref<LockedItem[]>([])
-const logs = ref<LogItem[]>([])
+const logs = ref<LogRow[]>([])
 const actionFilter = ref('')
 const logTotal = ref(0)
 const logPage = ref(1)
@@ -275,7 +284,7 @@ async function loadLogs() {
   if (actionFilter.value) params.action = actionFilter.value
   const { data } = await http.get('/admin/traffic/logs', { params })
   logTotal.value = data.total
-  logs.value = data.items.map((it: any) => ({
+  logs.value = data.items.map((it: LogItem) => ({
     id: it.id,
     action: it.action,
     ip: it.ip,

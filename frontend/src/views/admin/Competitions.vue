@@ -197,7 +197,7 @@ function statusLabel(s: string) {
   return STATUS_LABELS[s] || s
 }
 function statusType(s: string) {
-  return (STATUS_TYPES[s] as any) || 'info'
+  return STATUS_TYPES[s] || 'info'
 }
 function nextTransitions(s: string) {
   return TRANSITIONS[s] || []

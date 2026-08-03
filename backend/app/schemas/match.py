@@ -42,6 +42,9 @@ class MatchOut(BaseModel):
     # 队伍=队名，个体=昵称或用户名）。
     participant_a_name: str | None = None
     participant_b_name: str | None = None
+    # 玩法插件 registry key（如 "triangle_occupy"），API 层手工填充，
+    # 供前端按插件名动态解析玩法组件。
+    gameplay_plugin: str | None = None
 
 
 class GameSessionOut(BaseModel):

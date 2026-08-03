@@ -14,6 +14,7 @@ from app.db import SessionLocal
 from app.models.competition import Competition
 from app.models.match import Match
 from app.models.registration import Registration
+from app.services import match_service
 
 PASSWORD = "secret123"
 
@@ -403,3 +404,59 @@ def test_single_elim_winner_record_advances_engine(admin_client):
     resp = admin_client.post(f"/api/matches/{round2['id']}/start", json={})
     assert resp.status_code == 200, resp.text
     assert resp.json()["session_id"] is not None
+
+
+def test_single_elim_later_round_start_write_back_participants(admin_client):
+    """todo 3: start_match 把引擎解析的参赛者回写到 Match 行（前端依赖）。
+
+    单败淘汰后续轮次排表时 participant_a/b 为 None；开赛后必须落库，
+    否则前端 match 接口永远读到 null、无法推导 participant_id。
+    详情接口还需带 gameplay_plugin（前端按插件名解析玩法组件）。
+    """
+    comp_id, referee_token = _seed_single_elim(admin_client, count=5)
+    matches = _get_matches(admin_client, comp_id)
+    real = next(m for m in matches if m["participant_b"] is not None)
+    round2 = next(
+        m
+        for m in matches
+        if m["round_id"] == 2 and m["participant_a"] is None and m["participant_b"] is None
+    )
+
+    # 前序首轮真实对局完赛（3 个轮空自动晋级）。
+    _as_user(admin_client, referee_token)
+    resp = admin_client.post(f"/api/matches/{real['id']}/start", json={})
+    assert resp.status_code == 200, resp.text
+    resp = admin_client.post(
+        f"/api/matches/{real['id']}/result", json={"winner": real["participant_a"]}
+    )
+    assert resp.status_code == 200, resp.text
+
+    # 开赛前：后续轮次 participant_a/b 仍为 None，但详情已带 gameplay_plugin。
+    detail = admin_client.get(f"/api/matches/{round2['id']}").json()
+    assert detail["match"]["participant_a"] is None
+    assert detail["match"]["participant_b"] is None
+    assert detail["match"]["gameplay_plugin"] == "triangle_occupy"
+
+    # 开赛：引擎解析出真实参赛者并回写落库。
+    resp = admin_client.post(f"/api/matches/{round2['id']}/start", json={})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["session_id"] is not None
+
+    # 用确定性重建引擎验证回写值与引擎解析结果一致（防 stale_state）。
+    with SessionLocal() as db:
+        match_row = db.get(Match, round2["id"])
+        assert match_row is not None
+        comp = db.get(Competition, comp_id)
+        engine = match_service._rebuild_engine(db, comp)
+        match_service._replay_finished(db, comp, engine)
+        exp_a, exp_b = engine._resolve_participants(match_row.engine_match_id)
+        assert match_row.participant_a is not None
+        assert match_row.participant_b is not None
+        assert match_row.participant_a == exp_a
+        assert match_row.participant_b == exp_b
+
+    # API 详情同源读取：participant 非空 + gameplay_plugin。
+    detail = admin_client.get(f"/api/matches/{round2['id']}").json()
+    assert detail["match"]["participant_a"] is not None
+    assert detail["match"]["participant_b"] is not None
+    assert detail["match"]["gameplay_plugin"] == "triangle_occupy"

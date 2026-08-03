@@ -198,7 +198,12 @@ class TriangleOccupyPlugin(GameplayPlugin):
     def validate_result(
         self, session_id: int, state: dict, participant_id: int, payload: dict
     ) -> bool:
-        """结构性校验（Metis E7：只做值域，不校验得分真实性）。"""
+        """结构性校验（Metis E7：只做值域，不校验得分真实性）。
+
+        ``participant_id`` = 被操作的参赛单位 id（裁判替该方操作）；这里只
+        校验它是否为 ``sides`` 的合法键（即本局两名参赛单位之一），不做任何
+        身份判断 —— 操作者身份由路由层 require_referee 强制。
+        """
         payload = payload or {}
         if payload.get("action") not in VALID_ACTIONS:
             return False
@@ -224,6 +229,8 @@ class TriangleOccupyPlugin(GameplayPlugin):
     ) -> dict:
         payload = payload or {}
         sides = state.get("sides", {})
+        # participant_id = 被操作的参赛单位 id：必须命中 sides（defender/attacker
+        # 之一），操作落该阵营；是谁在操作由路由层 require_referee 把关。
         if participant_id not in sides:
             raise ValueError("非本局参与者")
 
@@ -281,6 +288,13 @@ class TriangleOccupyPlugin(GameplayPlugin):
         return new_state
 
     def end_session(self, session_id: int, state: dict) -> dict:
+        """收局：end_game() 置最终胜负后丢弃活控制器。
+
+        注意：本方法会 ``_drop_controller`` 丢弃活实例且**不**把收局后的
+        controller_state 同步回 ``state``（契约：方法不得修改传入 state）。
+        路由层必须在调用本方法**之前**捕获活控制器，用收局后的
+        controller_state 构造最终状态与广播视图（见 routes.end_session）。
+        """
         controller = self._get_controller(state)
         controller.end_game()
         self._drop_controller(state)

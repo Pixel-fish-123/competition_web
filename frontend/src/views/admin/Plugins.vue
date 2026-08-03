@@ -2,21 +2,12 @@
   <div class="admin-page">
     <h2>玩法模板管理</h2>
 
-    <el-alert
-      type="info"
-      :closable="false"
-      show-icon
-      title="说明"
-      description="后端当前未提供玩法模板列表的管理接口（/api/gameplay/* 尚未实现）。此处展示内置玩法模板的静态信息，后续接入后端后可在此扩展为可增删改的模板管理。"
-      class="notice"
-    />
-
-    <el-card shadow="never">
-      <template #header>内置玩法模板</template>
-      <div class="plugin-card">
-        <div class="plugin-name">triangle_occupy</div>
-        <div class="plugin-version">v1.0.0</div>
-        <div class="plugin-desc">三角占领 · 赛时控制器</div>
+    <el-card shadow="never" v-loading="loading">
+      <template #header>已注册玩法插件</template>
+      <el-empty v-if="!loading && plugins.length === 0" description="暂无已注册的玩法插件" />
+      <div v-for="p in plugins" :key="p.name" class="plugin-card">
+        <div class="plugin-name">{{ p.name }}</div>
+        <div class="plugin-version">v{{ p.version }}</div>
         <div class="plugin-meta">
           <el-tag size="small">内置</el-tag>
           <el-tag size="small" type="success">可用</el-tag>
@@ -27,6 +18,28 @@
 </template>
 
 <script setup lang="ts">
+import { onMounted, ref } from 'vue'
+import http from '../../api/http'
+
+interface PluginInfo {
+  name: string
+  version: string
+}
+
+const loading = ref(false)
+const plugins = ref<PluginInfo[]>([])
+
+onMounted(async () => {
+  loading.value = true
+  try {
+    const { data } = await http.get<PluginInfo[]>('/admin/plugins')
+    plugins.value = data
+  } catch {
+    // 403/401 由 http 拦截器统一提示；其余错误静默，保持空列表。
+  } finally {
+    loading.value = false
+  }
+})
 </script>
 
 <style scoped>

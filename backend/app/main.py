@@ -1,9 +1,8 @@
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
@@ -61,7 +60,18 @@ async def lifespan(app: FastAPI):
     # 玩法插件（todo 12）：扫描注册 plugins/ 下的插件并自动挂载
     # /api/gameplay/<name>/* 路由（register_default_plugins 幂等）。
     register_default_plugins()
+    # 摘除上一轮 lifespan 追加的 API 兜底（幂等重入），保证它始终排在全部
+    # 玩法路由之后 —— 兜底匹配 /api/* 全路径，会遮蔽其后注册的任何路由。
+    _drop_tail_routes(app)
     mount_gameplay_routes(app)
+    # 未匹配 /api/* 的 JSON 404 兜底（避免落入前端托管得到 index.html/405）。
+    app.include_router(_api_fallback_router)
+    # 前端静态托管：FastAPI 0.141 原生 frontend（低优先级路由 —— 全部普通
+    # 路由之后才匹配，天然规避 Mount("/") 遮蔽晚注册玩法路由的问题），
+    # fallback="index.html" 支持 SPA history 深链（/login、/competitions/1）
+    # 与 http.ts 401 硬跳转。幂等：只注册一次（测试反复进入 lifespan）。
+    if os.path.isdir(_frontend_dist) and getattr(app.router, "_frontend_routes", None) is None:
+        app.frontend("/", directory=_frontend_dist, fallback="index.html")
     yield
 
 
@@ -103,8 +113,37 @@ app.include_router(points_router)
 app.include_router(rankings_router)
 app.include_router(ws_router)
 
-# Mount static files from frontend-dist if it exists at startup.
-# The directory may not exist yet (frontend not built); do NOT create it.
-_frontend_dist = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend-dist")
-if os.path.isdir(_frontend_dist):
-    app.mount("/", StaticFiles(directory=_frontend_dist, html=True), name="frontend")
+# 静态托管目录：frontend/dist（todo 4 与 Vite 默认构建产物对齐）。
+# 托管本身不用 Mount("/")：lifespan 阶段才 include 的 /api/gameplay/* 玩法路由
+# 会排在 Mount 之后被遮蔽（FastAPI 0.141 _IncludedRouter 按注册顺序匹配）。
+# 改用原生 app.frontend()（低优先级路由，全部普通路由之后匹配），在 lifespan
+# 内注册（见 lifespan），既无遮蔽问题，也支持 SPA 深链回退 index.html。
+_frontend_dist = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "frontend", "dist")
+
+# 未匹配的 /api/* 请求统一返回 JSON 404：前端托管会把未匹配 GET 回退成
+# index.html、非 GET 回成 405，掩盖"接口不存在"。该兜底路由在 lifespan 内、
+# 真实 API 路由与玩法路由之后 include（见 lifespan）。
+_api_fallback_router = APIRouter()
+
+
+@_api_fallback_router.api_route(
+    "/api/{full_path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"]
+)
+def _api_fallback(full_path: str) -> JSONResponse:
+    """未知 API 路径 -> 404（而不是落入前端托管，得到 index.html/405）。"""
+    return JSONResponse(status_code=404, content={"detail": "接口不存在"})
+
+
+def _drop_tail_routes(app: FastAPI) -> None:
+    """移除上一轮 lifespan 追加的 API 兜底（幂等重入清理）。
+
+    /api/* 兜底路由会遮蔽其后注册的任何路由（FastAPI 0.141 的 _IncludedRouter
+    按注册顺序匹配）；玩法路由可能在后续 lifespan 才挂载（如测试的 fake 插件
+    在更晚注册）。因此每次进入 lifespan 都先把兜底从路由表摘除，待玩法路由
+    挂载完再追加到末尾，保证顺序始终是 [API 路由, 玩法路由, API 兜底]。
+    """
+    app.router.routes[:] = [
+        r
+        for r in app.router.routes
+        if getattr(r, "original_router", None) is not _api_fallback_router
+    ]

@@ -214,6 +214,10 @@ def start_match(
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        # 回写解析出的真实参赛者到 Match 行（单败淘汰后续轮次排表时两列为
+        # None），随下方 commit 落库，保证前端 match 接口能读到 participant_id。
+        match.participant_a = participant_a
+        match.participant_b = participant_b
 
     plugin = registry.get(competition.gameplay_plugin)
     if plugin is None:

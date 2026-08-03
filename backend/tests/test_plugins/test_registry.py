@@ -182,3 +182,31 @@ def test_discover_loads_fixture_fake_plugin():
     fixtures_dir = Path(__file__).parent / "fixtures"
     plugins = discover_plugins(fixtures_dir)
     assert any(p.name == "fake" and p.version == "1.0.0" for p in plugins)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/admin/plugins
+# ---------------------------------------------------------------------------
+
+
+def test_admin_list_plugins_returns_registered(client, admin_client):
+    """admin 调 GET /api/admin/plugins 返回 200 且含内置 triangle_occupy。"""
+    resp = admin_client.get("/api/admin/plugins")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert isinstance(body, list)
+    assert any(p["name"] == "triangle_occupy" for p in body)
+    # 每项都含 name + version 字段
+    for p in body:
+        assert "name" in p and "version" in p
+
+
+def test_player_list_plugins_forbidden(client):
+    """player 调同端点返回 403。"""
+    resp = client.post(
+        "/api/auth/register",
+        json={"username": "player_x", "email": "px@example.com", "password": "secret123"},
+    )
+    assert resp.status_code == 200
+    resp = client.get("/api/admin/plugins")
+    assert resp.status_code == 403

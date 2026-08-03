@@ -32,6 +32,15 @@ def list_users(request: Request, db: Session = Depends(get_db)):
     return db.query(User).order_by(User.id).all()
 
 
+@router.get("/api/admin/plugins")
+@limiter.limit("60/minute")
+def list_plugins(request: Request):
+    """列出已注册的玩法插件（admin only）。"""
+    from app.plugins.registry import registry
+
+    return [{"name": p.name, "version": p.version} for p in registry.all()]
+
+
 @router.patch("/api/admin/users/{user_id}", response_model=UserOut)
 @limiter.limit("60/minute")
 def update_user(

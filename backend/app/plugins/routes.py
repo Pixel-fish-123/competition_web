@@ -10,8 +10,8 @@
 权限（用户 2026-08-02 最终确认）：对局中仅 referee/admin 可操作棋盘
 （创建会话/提交操作/结束对局），选手只读（仅可查询会话状态）。
 
-会话存储：当前为进程内内存 dict（{session_id: {"plugin", "state"}}），
-服务重启即丢失；todo 14 引入 GameSession 模型后改为 DB 持久化。
+会话存储：GameSession DB 桥已实现（_load_db_session 回退装载 +
+_persist_session 回写），_sessions 仅作进程内缓存加速。
 
 所有插件抛出的 :class:`ValueError` 统一转换为 HTTP 400（detail=str(e)）。
 """
@@ -32,7 +32,8 @@ from app.models.user import User
 from app.plugins.base import GameplayPlugin
 from app.plugins.registry import registry
 
-# 会话存储（内存版，todo 14 换 DB 持久化）：
+# 会话存储（进程内缓存加速；DB 桥已实现——_load_db_session 回退装载 +
+# _persist_session 回写，见下方实现）：
 #   session_id -> {"plugin": GameplayPlugin, "state": dict, "match_id": int}
 #   match_id 供 todo 15 的 WS 广播定位订阅频道（对局状态实时推送）。
 _sessions: dict[int, dict] = {}
@@ -51,6 +52,9 @@ class SessionCreate(BaseModel):
 
 
 class ActionPayload(BaseModel):
+    # participant_id = 被操作的参赛单位 id（裁判替该方操作棋盘）。
+    # 注意：不是"发起人"身份 —— 操作者身份由 require_referee 强制；
+    # 插件侧只把它当作 sides 映射的键（合法 side 成员校验）。
     participant_id: int
     payload: dict = {}
 
@@ -170,7 +174,13 @@ def _build_plugin_router(plugin: GameplayPlugin) -> APIRouter:
         payload: ActionPayload,
         staff: User = Depends(require_referee),
     ):
-        """提交选手/裁判操作（仅 admin/referee）。先 validate 后 submit。"""
+        """提交选手/裁判操作（仅 admin/referee）。先 validate 后 submit。
+
+        ``participant_id`` = 被操作的参赛单位 id（裁判替该方操作；前端
+        MatchPlay 按替操作方推导 participant_a/b）。sides 校验即检查该参赛
+        单位是否为合法 side 成员。操作者身份由本路由层 require_referee
+        强制，插件层不感知身份。
+        """
         session = _get_session(session_id)
         try:
             valid = plugin.validate_result(
@@ -201,26 +211,51 @@ def _build_plugin_router(plugin: GameplayPlugin) -> APIRouter:
         session_id: int,
         staff: User = Depends(require_referee),
     ):
-        """结束对局（仅 admin/referee）；返回最终结果并从存储移除。"""
+        """结束对局（仅 admin/referee）；返回最终结果并从存储移除。
+
+        participant_id 语义见 submit_action：被操作的参赛单位 id（裁判替该方
+        操作）；操作者身份由本路由层 require_referee 强制，插件不感知身份。
+        """
         session = _get_session(session_id)
+        # 关键：必须在 end_session 之前捕获活控制器 —— end_session 内部会
+        # 调用 controller.end_game()（置 game_over=True）然后 _drop_controller
+        # 丢弃活实例；若事后才取控制器，_get_controller 会从陈旧的
+        # controller_state 重建（game_over=False），最终状态即失真。
+        # 仅三角占领等"活控制器"型插件提供 _get_controller；其余插件
+        # （如测试 FakePlugin）没有该方法，保持原行为（无最终状态注入）。
+        controller = (
+            plugin._get_controller(session["state"])
+            if hasattr(plugin, "_get_controller")
+            else None
+        )
         try:
             result = plugin.end_session(session_id, session["state"])
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
-        # DB 持久化会话：回写最终状态（含 cells_data，供 DB 恢复桥）并置 ended_at。
-        try:
-            controller = plugin._get_controller(session["state"])
+        if controller is not None:
+            # 用收局后的活控制器构造最终状态（只有此刻捕获的控制器才含正确胜负）。
             final_state = dict(session["state"])
             final_state["controller_state"] = controller.to_state_dict()
             final_state["elapsed_minutes"] = controller.elapsed()
-            _persist_session(session, final_state, ended=True)
-        except Exception:
-            _persist_session(session, session["state"], ended=True)
+        else:
+            final_state = session["state"]
+        # DB 持久化会话：回写最终状态（含 cells_data，供 DB 恢复桥）并置 ended_at。
+        _persist_session(session, final_state, ended=True)
         _sessions.pop(session_id, None)
-        # todo 15：会话结束广播，通知订阅者对局已完结。
+        # todo 15：会话结束广播，通知订阅者对局已完结。view 由注入最终
+        # controller_state 的 final_state 重建：get_state 对 final_state 无活
+        # 实例 -> _restore_controller 读取该状态 -> game_over=True 正确。
+        try:
+            view = plugin.get_state(session_id, final_state)
+        except ValueError:
+            view = final_state
+        if controller is not None:
+            # final_state 是本地临时 dict，收尾后即失效；其 id 可能被后续会话
+            # 复用，必须移除为它重建的控制器，避免陈旧棋盘泄漏到新会话。
+            plugin._drop_controller(final_state)
         manager.broadcast(
             session.get("match_id"),
-            {"type": "session_ended", "session_id": session_id},
+            {"type": "session_ended", "session_id": session_id, "state": view},
         )
         return {"session_id": session_id, "result": result}
 

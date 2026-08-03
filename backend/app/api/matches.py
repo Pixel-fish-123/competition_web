@@ -105,7 +105,12 @@ def _match_out(db: Session, match: Match) -> MatchOut:
         db, match.competition_id, match.participant_a, match.participant_b
     )
     return MatchOut.model_validate(match).model_copy(
-        update={"participant_a_name": a_name, "participant_b_name": b_name}
+        update={
+            "participant_a_name": a_name,
+            "participant_b_name": b_name,
+            # 玩法插件 registry key，供前端 MatchPlay 按名解析玩法组件。
+            "gameplay_plugin": db.get(Competition, match.competition_id).gameplay_plugin,
+        }
     )
 
 

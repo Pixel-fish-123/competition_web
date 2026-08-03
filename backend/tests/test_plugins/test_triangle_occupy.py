@@ -343,3 +343,47 @@ def test_http_non_participant_action_400(users):
         json={"participant_id": 999, "payload": {"action": "occupy", "cell_id": 1, "score": 90}},
     )
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# todo 2：participant_id 语义回归（前端 submitAction 推导替操作方 -> 落对应阵营）
+# 基线特征：修前这些断言失败 —— 前端硬编码 participant_id=0 导致操作被 400 拒绝；
+# 后端语义上 participant_id 必须是被操作的参赛单位 id（sides 的合法键）。
+# ---------------------------------------------------------------------------
+
+
+def test_http_action_participant_a_lands_on_defender(users):
+    """referee 以 participant_a（defender 方）为 participant_id 操作 -> 落在守护者阵营。"""
+    sid = _http_create(users)
+    resp = users["referee"].post(
+        f"{PREFIX}/session/{sid}/action",
+        json={"participant_id": 101, "payload": {"action": "occupy", "cell_id": 1, "score": 90}},
+    )
+    assert resp.status_code == 200, resp.text
+    board = resp.json()["state"]["controller_state"]["board"]
+    assert board[1]["owner"] == "defender"
+    assert board[2]["owner"] is None
+
+
+def test_http_action_participant_b_lands_on_attacker(users):
+    """referee 以 participant_b（attacker 方）为 participant_id 操作 -> 落在掠夺者阵营。"""
+    sid = _http_create(users)
+    resp = users["referee"].post(
+        f"{PREFIX}/session/{sid}/action",
+        json={"participant_id": 102, "payload": {"action": "occupy", "cell_id": 2, "score": 90}},
+    )
+    assert resp.status_code == 200, resp.text
+    board = resp.json()["state"]["controller_state"]["board"]
+    assert board[2]["owner"] == "attacker"
+    assert board[1]["owner"] is None
+
+
+def test_http_action_participant_zero_rejected_400(users):
+    """前端硬编码的 participant_id=0 不是 sides 合法键 -> 后端 400（不静默通过）。"""
+    sid = _http_create(users)
+    resp = users["referee"].post(
+        f"{PREFIX}/session/{sid}/action",
+        json={"participant_id": 0, "payload": {"action": "occupy", "cell_id": 1, "score": 90}},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "非法操作"

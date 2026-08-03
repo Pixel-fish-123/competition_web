@@ -304,3 +304,52 @@ def test_ws_rate_limit_closes_connection(admin_client):
         with pytest.raises(WebSocketDisconnect) as exc:
             ws.receive_json()
         assert exc.value.code == 1008
+
+
+# ------------------------------------------------------------------ todo 2 ⑥ end_session broadcast
+#
+# 基线特征（修前失败）：routes.end_session 在 plugin.end_session（内部
+# _drop_controller 丢弃活实例）之后才取控制器，从陈旧的 controller_state 重建
+# （game_over=False），且广播不带 state 字段 —— 前端"记录结果"按钮
+# （v-if=state.game_over）永不出现。断言两个修复点：帧带 state，且
+# controller_state/外层 game_over 均为 True。
+
+
+def test_ws_end_session_broadcasts_game_over_state(admin_client):
+    """end_session 广播 session_ended 必须携带 game_over=True 的最终状态。"""
+    _, match, referee_token, _ = _setup_match(admin_client)
+    _as_user(admin_client, referee_token)
+    config = {
+        "song_lib": SONG_LIB,
+        "seed": 1,
+        "sides": {
+            match["participant_a"]: "defender",
+            match["participant_b"]: "attacker",
+        },
+    }
+    resp = admin_client.post(
+        "/api/gameplay/triangle_occupy/session",
+        json={"match_id": match["id"], "config": config},
+    )
+    assert resp.status_code == 200, resp.text
+    session_id = resp.json()["session_id"]
+
+    with _ws_connect(admin_client, match["id"], referee_token) as ws:
+        first = ws.receive_json()
+        assert first["type"] == "state_update"
+        assert first["session_id"] == session_id
+        assert first["state"]["game_over"] is False
+
+        # _ws_connect 清空了 cookie jar，POST 前重新以裁判身份登录。
+        _as_user(admin_client, referee_token)
+        resp = admin_client.post(
+            f"/api/gameplay/triangle_occupy/session/{session_id}/end"
+        )
+        assert resp.status_code == 200, resp.text
+
+        frame = ws.receive_json()
+        assert frame["type"] == "session_ended"
+        assert frame["session_id"] == session_id
+        assert "state" in frame
+        assert frame["state"]["game_over"] is True
+        assert frame["state"]["controller_state"]["game_over"] is True

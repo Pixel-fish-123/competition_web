@@ -39,6 +39,17 @@
       </div>
 
       <div class="match-play__side">
+        <div
+          v-if="isRefereeOrAdmin && !state.game_over"
+          class="match-play__acting"
+        >
+          <span class="match-play__acting-label">替哪一方操作</span>
+          <el-radio-group v-model="actingSide" size="small">
+            <el-radio-button value="defender">守护者方</el-radio-button>
+            <el-radio-button value="attacker">掠夺者方</el-radio-button>
+          </el-radio-group>
+        </div>
+
         <TriangleControls
           v-if="isRefereeOrAdmin"
           :selected-cell="selectedCell"
@@ -87,6 +98,13 @@ interface MatchInfo {
   referee_id: number | null
 }
 
+// GET /api/matches/{id} 返回嵌套的 MatchDetailOut = {match, session}
+// （todo 2 ①：旧代码把整个响应当扁平 MatchInfo 用，participant_a/status 全 undefined）。
+interface MatchDetailResp {
+  match: MatchInfo
+  session: { id: number; state: Record<string, unknown> | null } | null
+}
+
 const route = useRoute()
 const auth = useAuthStore()
 
@@ -99,8 +117,12 @@ const selectedCell = ref<TriangleCell | null>(null)
 const starting = ref(false)
 const recording = ref(false)
 const sessionId = ref<number | null>(null)
+// 裁判替哪一方操作（todo 2 ③）：defender -> participant_a，attacker -> participant_b。
+const actingSide = ref<'defender' | 'attacker'>('defender')
 
 let ws: WebSocket | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+let unmounted = false
 
 const isRefereeOrAdmin = computed(() => auth.isRefereeOrAdmin)
 
@@ -145,8 +167,14 @@ function connectWs(): void {
   ws.onmessage = (event) => {
     try {
       const frame = JSON.parse(event.data)
+      // WS 帧的 state 是 get_state 的嵌套公开视图 {controller_state: {...},
+      // elapsed_minutes, sides, game_over, winner}（plugin.py:185-196），而
+      // TriangleState 期望扁平字段。解包：controller_state 提供棋盘字段，
+      // 外层 elapsed_minutes 等作为补充（todo 2 ②）。
+      const unpack = (raw: any): TriangleState =>
+        (raw?.controller_state ? { ...raw.controller_state, ...raw } : raw) as TriangleState
       if (frame.type === 'state_update') {
-        state.value = frame.state as TriangleState
+        state.value = unpack(frame.state)
         sessionId.value = frame.session_id ?? null
         noSession.value = false
       } else if (frame.type === 'no_session') {
@@ -154,8 +182,13 @@ function connectWs(): void {
         sessionId.value = null
         noSession.value = true
       } else if (frame.type === 'session_ended') {
-        noSession.value = true
-        state.value = null
+        // 会话结束保留最终状态（todo 2 ④）：帧带 state 用之（含 game_over=true），
+        // 否则保留旧值 —— 保证"记录结果"按钮（v-if=state.game_over）可见、
+        // 棋盘仍显示终局。不清空 state。
+        if (frame.state) {
+          state.value = unpack(frame.state)
+        }
+        noSession.value = false
         sessionId.value = null
       }
     } catch {
@@ -163,9 +196,18 @@ function connectWs(): void {
     }
   }
 
-  ws.onclose = () => {
+  ws.onclose = (event) => {
+    if (unmounted) return
+    if (event.code === 1008) {
+      // 对局/比赛被删除或无权限：停止无限重连（todo 8 删除 finished 比赛后
+      // 不应残留订阅者每 3s 重连一次）。
+      ElMessage.info('对局已关闭')
+      return
+    }
     // Attempt reconnect after a short delay.
-    setTimeout(() => {
+    if (reconnectTimer) clearTimeout(reconnectTimer)
+    reconnectTimer = setTimeout(() => {
+      if (unmounted) return
       if (!ws || ws.readyState === WebSocket.CLOSED) connectWs()
     }, 3000)
   }
@@ -173,8 +215,13 @@ function connectWs(): void {
 
 async function loadMatch(): Promise<void> {
   try {
-    const { data } = await http.get<MatchInfo>(`/matches/${matchId.value}`)
-    match.value = data
+    // 响应是嵌套 MatchDetailOut={match, session}（todo 2 ①）：解包取 data.match，
+    // 会话存在时预填 sessionId。
+    const { data: detail } = await http.get<MatchDetailResp>(`/matches/${matchId.value}`)
+    match.value = detail.match
+    if (detail.session) {
+      sessionId.value = detail.session.id
+    }
   } catch {
     ElMessage.error('加载对局信息失败')
   }
@@ -195,9 +242,20 @@ async function submitAction(payload: {
     ElMessage.warning('对局会话尚未建立')
     return
   }
+  // todo 2 ③：按替操作方推导被操作的参赛单位 id（defender -> participant_a，
+  // attacker -> participant_b）。不再硬编码 0 —— 后端 validate_result 对 0
+  // 会以 400「非法操作」拒绝。
+  const pid =
+    actingSide.value === 'defender'
+      ? match.value?.participant_a
+      : match.value?.participant_b
+  if (pid === null || pid === undefined) {
+    ElMessage.warning('该侧参赛者未确定，请先开赛')
+    return
+  }
   try {
     await http.post(`/gameplay/triangle_occupy/session/${sessionId.value}/action`, {
-      participant_id: 0,
+      participant_id: pid,
       payload,
     })
   } catch (e: unknown) {
@@ -281,6 +339,11 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  unmounted = true
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
   if (ws) {
     ws.onclose = null
     ws.close()
@@ -331,6 +394,19 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+.match-play__acting {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  background: #f8f9fb;
+}
+.match-play__acting-label {
+  font-size: 13px;
+  color: #606266;
 }
 .match-play__empty {
   display: flex;

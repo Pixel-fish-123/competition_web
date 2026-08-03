@@ -166,7 +166,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import http from '../../api/http'
 
@@ -205,7 +205,7 @@ const logTotal = ref(0)
 const logPage = ref(1)
 const logPageSize = 20
 
-const autoRefresh = ref(false)
+const autoRefresh = ref(true)
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 const summaryCards = computed(() => [
@@ -317,9 +317,17 @@ function stopAutoRefresh() {
   }
 }
 
+watch(
+  autoRefresh,
+  (v) => {
+    if (v) startAutoRefresh()
+    else stopAutoRefresh()
+  },
+  { immediate: true },
+)
+
 onMounted(() => {
   loadAll()
-  startAutoRefresh()
 })
 onBeforeUnmount(stopAutoRefresh)
 </script>

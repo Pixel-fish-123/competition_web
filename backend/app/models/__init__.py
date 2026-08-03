@@ -1,6 +1,7 @@
 """ORM model registry. Importing this package registers every table on
 ``Base.metadata`` so app/main.py's lifespan ``create_all`` builds them all."""
 
+from app.models.audit_log import AuditLog
 from app.models.competition import Competition
 from app.models.match import GameSession, Match
 from app.models.registration import Registration
@@ -15,4 +16,5 @@ __all__ = [
     "Registration",
     "Match",
     "GameSession",
+    "AuditLog",
 ]

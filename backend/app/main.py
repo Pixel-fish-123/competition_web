@@ -4,13 +4,19 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 # Import the ORM models so Base.metadata knows about them for create_all.
+import app.models.audit_log  # noqa: F401
 import app.models.competition  # noqa: F401
 import app.models.match  # noqa: F401
 import app.models.registration  # noqa: F401
 import app.models.team  # noqa: F401
 import app.models.user  # noqa: F401
+from app.api.admin_traffic import router as admin_traffic_router
 from app.api.admin_users import router as admin_users_router
 from app.api.auth import router as auth_router
 from app.api.competitions import router as competitions_router
@@ -20,6 +26,7 @@ from app.api.registrations import router as registrations_router
 from app.api.teams import router as teams_router
 from app.api.ws import router as ws_router
 from app.core.csrf import CSRFMiddleware
+from app.core.ratelimit import limiter
 from app.db import Base, engine
 from app.plugins.registry import register_default_plugins
 from app.plugins.routes import mount_gameplay_routes
@@ -38,10 +45,22 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="萌新杯音游比赛网站", lifespan=lifespan)
+app.state.limiter = limiter
+
+
+def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """429 统一 JSON 响应（限流超限）。"""
+    return JSONResponse(status_code=429, content={"detail": "请求过于频繁，请稍后再试"})
+
+
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Order note: the last add_middleware() call is the outermost middleware.
-# CORS ends up outermost, CSRF inside it — CSRF still sees every request
-# and rejects cross-site state-changing requests before they hit handlers.
+# CORS ends up outermost, CSRF inside it, SlowAPI innermost — CSRF still
+# sees every request and rejects cross-site state-changing requests before
+# they hit handlers, and rate limiting only counts requests that already
+# passed CSRF (forged-origin POSTs are rejected without burning budget).
+app.add_middleware(SlowAPIMiddleware)
 app.add_middleware(CSRFMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -54,6 +73,7 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(admin_users_router)
+app.include_router(admin_traffic_router)
 app.include_router(teams_router)
 app.include_router(registrations_router)
 app.include_router(competitions_router)

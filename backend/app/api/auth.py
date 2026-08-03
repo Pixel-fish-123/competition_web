@@ -1,22 +1,26 @@
 """Auth endpoints: register, login, logout, me.
 
 Sessions are JWT-based, stored in an httpOnly SameSite=Lax cookie named "token".
-TODO 16 will build account-lockout on top of FAILED_LOGINS.
+Todo 16: account lockout (5 consecutive failures → 15 min, Metis C2) via
+core/lockout.py, audit logging via core/audit.py, and slowapi rate limits
+(10/minute per IP; the per-account dimension is the lockout module).
 """
+
+import time
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
+from app.core.audit import log_audit
+from app.core.lockout import locked_until, record_failed_login, reset_lockout
+from app.core.ratelimit import limiter
 from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
 from app.db import get_db
 from app.models.user import User
 from app.schemas.user import LoginRequest, RegisterRequest, UserOut
 
 router = APIRouter()
-
-# In-memory failed-login counters for later lockout logic (todo 16).
-FAILED_LOGINS = {"by_username": {}, "by_ip": {}}
 
 COOKIE_NAME = "token"
 COOKIE_MAX_AGE = 7 * 24 * 3600  # 7 days, seconds
@@ -34,13 +38,15 @@ def _set_auth_cookie(response: Response, user_id: int, role: str) -> None:
     )
 
 
-def _record_failed_login(username: str, ip: str) -> None:
-    FAILED_LOGINS["by_username"][username] = FAILED_LOGINS["by_username"].get(username, 0) + 1
-    FAILED_LOGINS["by_ip"][ip] = FAILED_LOGINS["by_ip"].get(ip, 0) + 1
+def _request_meta(request: Request) -> tuple[str, str | None]:
+    """(ip, user_agent) 供审计日志使用。"""
+    ip = request.client.host if request.client else "unknown"
+    return ip, request.headers.get("user-agent")
 
 
 @router.post("/api/auth/register", response_model=UserOut)
-def register(payload: RegisterRequest, response: Response, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def register(request: Request, payload: RegisterRequest, response: Response, db: Session = Depends(get_db)):
     if db.query(User).filter(User.username == payload.username).first() is not None:
         raise HTTPException(status_code=400, detail="用户名已存在")
     if db.query(User).filter(User.email == payload.email).first() is not None:
@@ -56,17 +62,31 @@ def register(payload: RegisterRequest, response: Response, db: Session = Depends
     db.commit()
     db.refresh(user)
 
+    ip, user_agent = _request_meta(request)
+    log_audit(db, user.id, "register", ip, user_agent, {"username": user.username})
     _set_auth_cookie(response, user.id, user.role)
     return user  # auto-login on register
 
 
 @router.post("/api/auth/login", response_model=UserOut)
-def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(request: Request, payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
+    ip, user_agent = _request_meta(request)
+
+    # Lockout check FIRST: even a correct password is rejected while locked (423).
+    until = locked_until(payload.username)
+    if until is not None:
+        remaining = max(1, int(until - time.time()))
+        raise HTTPException(status_code=423, detail=f"账号已锁定，请{remaining}秒后再试")
+
     user = db.query(User).filter(User.username == payload.username).first()
     if user is None or not verify_password(payload.password, user.password_hash):
-        _record_failed_login(payload.username, request.client.host if request.client else "unknown")
+        record_failed_login(payload.username, ip)
+        log_audit(db, None, "login_failed", ip, user_agent, {"username": payload.username})
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
+    reset_lockout(payload.username)
+    log_audit(db, user.id, "login", ip, user_agent, {"username": user.username})
     _set_auth_cookie(response, user.id, user.role)
     return user
 

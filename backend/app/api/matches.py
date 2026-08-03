@@ -7,9 +7,10 @@
 - POST /api/matches/{match_id}/result                裁判（须在本场 referee_ids）
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
+from app.core.audit import log_audit
 from app.core.rbac import get_current_user, require_referee
 from app.db import get_db
 from app.models.competition import Competition
@@ -25,6 +26,11 @@ from app.schemas.match import (
 from app.services import match_service
 
 router = APIRouter()
+
+
+def _request_meta(request: Request) -> tuple[str, str | None]:
+    ip = request.client.host if request.client else "unknown"
+    return ip, request.headers.get("user-agent")
 
 
 def _get_competition_or_404(db: Session, competition_id: int) -> Competition:
@@ -90,12 +96,22 @@ def get_match_detail(
 def start_match(
     match_id: int,
     payload: MatchStartIn,
+    request: Request,
     db: Session = Depends(get_db),
     staff: User = Depends(require_referee),
 ):
     """裁判开赛（须在本场 referee_ids 内）。轮空对局自动完结，不建会话。"""
     session = match_service.start_match(
         db, match_id, staff, scheduled_at=payload.scheduled_at
+    )
+    ip, user_agent = _request_meta(request)
+    log_audit(
+        db,
+        staff.id,
+        "match_start",
+        ip,
+        user_agent,
+        {"match_id": match_id, "referee": staff.username},
     )
     if session is None:
         return {"session_id": None, "match_id": match_id, "status": "finished"}
@@ -111,8 +127,24 @@ def start_match(
 def record_result(
     match_id: int,
     payload: MatchResultIn,
+    request: Request,
     db: Session = Depends(get_db),
     staff: User = Depends(require_referee),
 ):
     """裁判记分（须在本场 referee_ids 内）；单败淘汰禁平局。"""
-    return match_service.record_match_result(db, match_id, payload, staff)
+    result = match_service.record_match_result(db, match_id, payload, staff)
+    ip, user_agent = _request_meta(request)
+    log_audit(
+        db,
+        staff.id,
+        "match_result",
+        ip,
+        user_agent,
+        {
+            "match_id": match_id,
+            "referee": staff.username,
+            "winner": payload.winner,
+            "is_draw": payload.is_draw,
+        },
+    )
+    return result

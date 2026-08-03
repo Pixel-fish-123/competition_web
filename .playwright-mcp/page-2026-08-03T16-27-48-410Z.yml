@@ -1,0 +1,143 @@
+- generic [active] [ref=f2e1]:
+  - generic [ref=f2e3]:
+    - banner [ref=f2e4]:
+      - navigation [ref=f2e5]:
+        - link "首页" [ref=f2e6] [cursor=pointer]:
+          - /url: /
+        - link "比赛" [ref=f2e7] [cursor=pointer]:
+          - /url: /competitions
+        - link "排行榜" [ref=f2e8] [cursor=pointer]:
+          - /url: /rankings
+        - link "后台" [ref=f2e9] [cursor=pointer]:
+          - /url: /admin
+        - link "个人中心" [ref=f2e10] [cursor=pointer]:
+          - /url: /profile
+      - generic [ref=f2e11]:
+        - generic [ref=f2e12]: referee
+        - button "退出" [ref=f2e13] [cursor=pointer]
+    - main [ref=f2e15]:
+      - generic [ref=f2e249]:
+        - generic [ref=f2e250]:
+          - 'heading "对局 #1" [level=1] [ref=f2e251]'
+          - generic [ref=f2e252]: 未开始
+        - generic [ref=f2e254]: 萌新队A VS player8
+        - generic [ref=f2e278]:
+          - generic [ref=f2e280]:
+            - generic [ref=f2e281]:
+              - generic [ref=f2e282]:
+                - generic [ref=f2e283]: 守护者
+                - generic [ref=f2e284]: "0"
+              - generic [ref=f2e285]: 00:00 / 25:00
+              - generic [ref=f2e288]:
+                - generic [ref=f2e289]: 掠夺者
+                - generic [ref=f2e290]: "0"
+            - generic [ref=f2e291]:
+              - 'generic "L1格 | 难度: Chaos 10+ | 任务: L1源头 (固定+10) | 分值: 13 | 占领: 中立" [ref=f2e292] [cursor=pointer]':
+                - generic [ref=f2e293]: L1
+                - generic [ref=f2e294]: "13"
+              - 'generic "L2格 | 难度: Chaos 13 | 任务: tp98 / 95w | 分值: 12 | 占领: 中立" [ref=f2e295] [cursor=pointer]':
+                - generic [ref=f2e296]: L2
+                - generic [ref=f2e297]: "12"
+              - 'generic "L2格 | 难度: Hard 12 | 任务: tp99.5 / 99.5w | 分值: 15 | 占领: 中立" [ref=f2e298] [cursor=pointer]':
+                - generic [ref=f2e299]: L2
+                - generic [ref=f2e300]: "15"
+              - 'generic "L3格 | 难度: Glitch 12+ | 任务: FULL COMBO | 分值: 12 | 占领: 中立" [ref=f2e301] [cursor=pointer]':
+                - generic [ref=f2e302]: L3
+                - generic [ref=f2e303]: "12"
+              - 'generic "L3格 | 难度: Hard 14 | 任务: 三位一体 | 分值: 13 | 占领: 中立" [ref=f2e304] [cursor=pointer]':
+                - generic [ref=f2e305]: L3
+                - generic [ref=f2e306]: "13"
+              - 'generic "L3格 | 难度: Chaos 15+ | 任务: tp96 / 92w | 分值: 18 | 占领: 中立" [ref=f2e307] [cursor=pointer]':
+                - generic [ref=f2e308]: L3
+                - generic [ref=f2e309]: "18"
+              - 'generic "L4格 | 难度: Hard 10+ | 任务: MM | 分值: 13 | 占领: 中立" [ref=f2e310] [cursor=pointer]':
+                - generic [ref=f2e311]: L4
+                - generic [ref=f2e312]: "13"
+              - 'generic "L4格 | 难度: Hard 9 | 任务: tp99.5 / 99.5w | 分值: 13 | 占领: 中立" [ref=f2e313] [cursor=pointer]':
+                - generic [ref=f2e314]: L4
+                - generic [ref=f2e315]: "13"
+              - 'generic "L4格 | 难度: Chaos 15 | 任务: tp97 / 93w | 分值: 14 | 占领: 中立" [ref=f2e316] [cursor=pointer]':
+                - generic [ref=f2e317]: L4
+                - generic [ref=f2e318]: "14"
+              - 'generic "L4格 | 难度: Hard 9+ | 任务: tp99.5 / 99.5w | 分值: 13 | 占领: 中立" [ref=f2e319] [cursor=pointer]':
+                - generic [ref=f2e320]: L4
+                - generic [ref=f2e321]: "13"
+              - 'generic "L5格 | 难度: Hard 12+ | 任务: tp96 / 92w | 分值: 8 | 占领: 中立" [ref=f2e322] [cursor=pointer]':
+                - generic [ref=f2e323]: L5
+                - generic [ref=f2e324]: "8"
+              - 'generic "L5格 | 难度: Hard 13 | 任务: tp96 / 92w | 分值: 9 | 占领: 中立" [ref=f2e325] [cursor=pointer]':
+                - generic [ref=f2e326]: L5
+                - generic [ref=f2e327]: "9"
+              - 'generic "L5格 | 难度: Hard 12+ | 任务: tp98 / 95w | 分值: 11 | 占领: 中立" [ref=f2e328] [cursor=pointer]':
+                - generic [ref=f2e329]: L5
+                - generic [ref=f2e330]: "11"
+              - 'generic "L5格 | 难度: Chaos 12 | 任务: 三位一体 | 分值: 10 | 占领: 中立" [ref=f2e331] [cursor=pointer]':
+                - generic [ref=f2e332]: L5
+                - generic [ref=f2e333]: "10"
+              - 'generic "L5格 | 难度: Chaos 12 | 任务: tp98 / 95w | 分值: 11 | 占领: 中立" [ref=f2e334] [cursor=pointer]':
+                - generic [ref=f2e335]: L5
+                - generic [ref=f2e336]: "11"
+              - 'generic "L6格 | 难度: Chaos 10 | 任务: tp96 / 92w | 分值: 6 | 占领: 中立" [ref=f2e337] [cursor=pointer]':
+                - generic [ref=f2e338]: L6
+                - generic [ref=f2e339]: "6"
+              - 'generic "L6格 | 难度: Glitch 10 | 任务: tp97 / 93w | 分值: 7 | 占领: 中立" [ref=f2e340] [cursor=pointer]':
+                - generic [ref=f2e341]: L6
+                - generic [ref=f2e342]: "7"
+              - 'generic "L6格 | 难度: Glitch 8 | 任务: tp96 / 92w | 分值: 5 | 占领: 中立" [ref=f2e343] [cursor=pointer]':
+                - generic [ref=f2e344]: L6
+                - generic [ref=f2e345]: "5"
+              - 'generic "L6格 | 难度: Hard 8 | 任务: tp97 / 93w | 分值: 6 | 占领: 中立" [ref=f2e346] [cursor=pointer]':
+                - generic [ref=f2e347]: L6
+                - generic [ref=f2e348]: "6"
+              - 'generic "L6格 | 难度: Chaos 8 | 任务: tp97 / 93w | 分值: 6 | 占领: 中立" [ref=f2e349] [cursor=pointer]':
+                - generic [ref=f2e350]: L6
+                - generic [ref=f2e351]: "6"
+              - 'generic "L6格 | 难度: Chaos 9 | 任务: tp96 / 92w | 分值: 6 | 占领: 中立" [ref=f2e352] [cursor=pointer]':
+                - generic [ref=f2e353]: L6
+                - generic [ref=f2e354]: "6"
+              - generic "能量格" [ref=f2e355] [cursor=pointer]: ⚡
+              - generic "能量格" [ref=f2e357] [cursor=pointer]: ⚡
+              - generic "能量格" [ref=f2e359] [cursor=pointer]: ⚡
+              - generic "能量格" [ref=f2e361] [cursor=pointer]: ⚡
+              - generic "能量格" [ref=f2e363] [cursor=pointer]: ⚡
+              - generic "能量格" [ref=f2e365] [cursor=pointer]: ⚡
+            - generic [ref=f2e367]:
+              - heading "对局动态" [level=3] [ref=f2e368]
+              - list [ref=f2e369]:
+                - listitem [ref=f2e370]:
+                  - generic [ref=f2e371]: 00:01
+                  - generic [ref=f2e372]: 游戏初始化完成
+          - generic [ref=f2e373]:
+            - generic [ref=f2e374]:
+              - generic [ref=f2e375]: 替哪一方操作
+              - radiogroup "radio-group" [ref=f2e376]:
+                - generic [ref=f2e377]:
+                  - radio "守护者方" [checked] [ref=f2e378]
+                  - generic [ref=f2e379] [cursor=pointer]: 守护者方
+                - generic [ref=f2e380]:
+                  - radio "掠夺者方" [ref=f2e381]
+                  - generic [ref=f2e382] [cursor=pointer]: 掠夺者方
+            - generic [ref=f2e383]:
+              - generic [ref=f2e384]:
+                - button "占领" [disabled] [ref=f2e385]
+                - button "取消占领" [disabled] [ref=f2e387]
+                - button "重占" [disabled] [ref=f2e389]
+              - generic [ref=f2e391]:
+                - generic [ref=f2e392]:
+                  - button "减少数值" [ref=f2e393] [cursor=pointer]
+                  - button "增加数值" [ref=f2e397] [cursor=pointer]
+                  - spinbutton "L1 分数" [disabled] [ref=f2e403]
+                - generic [ref=f2e404]:
+                  - button "减少数值" [ref=f2e405] [cursor=pointer]
+                  - button "增加数值" [ref=f2e409] [cursor=pointer]
+                  - spinbutton "L1 TP" [disabled] [ref=f2e415]
+              - generic [ref=f2e416]:
+                - generic [ref=f2e417]:
+                  - button "减少数值" [ref=f2e418] [cursor=pointer]
+                  - button "增加数值" [ref=f2e422] [cursor=pointer]
+                  - spinbutton "时限(分钟)" [ref=f2e428]: "25"
+                - button "设置时限" [ref=f2e429] [cursor=pointer]
+              - button "结束对局" [ref=f2e432] [cursor=pointer]
+    - contentinfo [ref=f2e21]: © 2026 竞赛平台
+  - alert [ref=f2e434]:
+    - paragraph [ref=f2e438]: 对局已开始

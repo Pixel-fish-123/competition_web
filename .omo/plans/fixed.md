@@ -197,10 +197,10 @@ Your next move: 高精度评审（momus + Oracle）已自动运行，评审通�
 
 ## Final verification wave
 > Runs in parallel after ALL todos. ALL must APPROVE. Surface results and wait for the user's explicit okay before declaring complete.
-- [ ] F1. Plan compliance audit
-- [ ] F2. Code quality review
-- [ ] F3. Real manual QA
-- [ ] F4. Scope fidelity
+- [x] F1. Plan compliance audit
+- [x] F2. Code quality review
+- [x] F3. Real manual QA
+- [x] F4. Scope fidelity
 
 ## Commit strategy
 - Conventional Commits：`fix(gameplay):` 对局链路、`fix(matches):` 参赛者回写与字段补齐、`fix(deploy):` 静态托管、`fix(frontend):` 竞态、`feat(admin):` 插件接口/增删账号、`feat(rbac):` 裁判校验、`feat(competitions):` 删除 finished、`feat(frontend):` 赛程图、`refactor(frontend):` 插件化/首页改版、`refactor(points):` 积分合并、`chore(db):` 重置脚本、`chore(frontend):` as any 清理、`docs(deploy):` 部署产物、`test:` 回归

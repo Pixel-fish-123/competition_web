@@ -4,6 +4,7 @@ import Login from '../views/Login.vue'
 import Competitions from '../views/Competitions.vue'
 import CompetitionDetail from '../views/CompetitionDetail.vue'
 import Profile from '../views/Profile.vue'
+import Rankings from '../views/Rankings.vue'
 import MatchPlay from '../views/MatchPlay.vue'
 import AdminLayout from '../views/admin/AdminLayout.vue'
 import AdminUsers from '../views/admin/Users.vue'
@@ -21,6 +22,7 @@ const router = createRouter({
     { path: '/competitions', name: 'competitions', component: Competitions },
     { path: '/competitions/:cid', name: 'competition-detail', component: CompetitionDetail },
     { path: '/competitions/:cid/matches/:mid', name: 'match-play', component: MatchPlay },
+    { path: '/rankings', name: 'rankings', component: Rankings },
     {
       path: '/admin',
       component: AdminLayout,
@@ -33,32 +35,40 @@ const router = createRouter({
         { path: 'plugins', name: 'admin-plugins', component: AdminPlugins },
       ],
     },
-    { path: '/profile', name: 'profile', component: Profile },
+    { path: '/profile', name: 'profile', component: Profile, meta: { requiresAuth: true } },
   ],
 })
 
-// Admin guard: only users with role === 'admin' may access /admin/*.
-// Profile guard: /profile requires login (todo 22 will generalize auth guards).
+// Global auth guards:
+// - /admin/* requires role === 'admin'
+// - routes with meta.requiresAuth require login
+// - /login redirects to / when already authenticated
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
+
+  // Ensure session state is loaded before evaluating guards.
+  if (!auth.loaded) {
+    await auth.fetchMe()
+  }
+
+  // Already logged in → skip the login page.
+  if (to.path === '/login' && auth.user) {
+    return { path: '/' }
+  }
+
+  // Admin guard: only users with role === 'admin' may access /admin/*.
   if (to.path.startsWith('/admin')) {
-    if (!auth.loaded) {
-      await auth.fetchMe()
-    }
     if (auth.user?.role !== 'admin') {
       return { path: '/' }
     }
     return true
   }
-  if (to.path === '/profile') {
-    if (!auth.loaded) {
-      await auth.fetchMe()
-    }
-    if (!auth.user) {
-      return { path: '/login' }
-    }
-    return true
+
+  // Profile guard: /profile requires login.
+  if (to.meta.requiresAuth && !auth.user) {
+    return { path: '/login', query: { redirect: to.fullPath } }
   }
+
   return true
 })
 

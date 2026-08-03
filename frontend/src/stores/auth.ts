@@ -38,5 +38,37 @@ export const useAuthStore = defineStore('auth', {
         return null
       }
     },
+    async login(username: string, password: string): Promise<AuthUser> {
+      const { data } = await http.post<AuthUser>('/auth/login', {
+        username,
+        password,
+      })
+      this.user = data
+      this.loaded = true
+      return data
+    },
+    async register(
+      username: string,
+      email: string,
+      password: string,
+    ): Promise<AuthUser> {
+      const { data } = await http.post<AuthUser>('/auth/register', {
+        username,
+        email,
+        password,
+      })
+      // Registration auto-logs in (backend sets httpOnly cookie + returns UserOut).
+      this.user = data
+      this.loaded = true
+      return data
+    },
+    async logout(): Promise<void> {
+      try {
+        await http.post('/auth/logout')
+      } finally {
+        this.user = null
+        this.loaded = true
+      }
+    },
   },
 })

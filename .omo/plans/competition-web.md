@@ -276,7 +276,7 @@ Your next move: 批准后运行 `$start-work competition-web` 开始执行（或
   QA scenarios: happy — 注册→自动登录→访问个人中心 200；failure — 429 限流时 axios 拦截器弹出友好提示，证据 .omo/evidence/task-22-competition-web.txt
   Commit: Y | feat: 前端路由守卫与会话整合
 
-- [ ] 23. 管理后台完善：权限分配界面 + 流量监控可视化
+- [x] 23. 管理后台完善：权限分配界面 + 流量监控可视化
   What to do / Must NOT do: admin/users.vue 增强（角色下拉分配、封禁/解封、重置密码按钮）；admin/traffic.vue 增强（登录失败趋势简单图表（可选 ECharts）、锁定列表、高频 IP 表格、按时间过滤）。Must NOT: 权限分配不允许 admin 给自己降级到 player（防锁死）。
   Parallelization: Wave 9 | Blocked by: 3,19,22 | Blocks: 24
   References (executor has NO interview context - be exhaustive): plan.md §十二（管理后台）、§十（流量监控内容）
@@ -284,7 +284,7 @@ Your next move: 批准后运行 `$start-work competition-web` 开始执行（或
   QA scenarios: happy — 改角色后重新登录权限变化；failure — 最后一个 admin 尝试把自己降级被后端 400 拒绝，证据 .omo/evidence/task-23-competition-web.txt
   Commit: Y | feat: 权限分配与流量监控页面
 
-- [ ] 24. 种子数据与开发环境脚本
+- [x] 24. 种子数据与开发环境脚本
   What to do / Must NOT do: backend/seed.py（幂等种子：admin 账号 admin/admin123（仅开发）、referee 账号、8 个 player 账号、2 支队伍、1 场演示比赛（分组循环+三角占领+积分规则））；backend/run_dev.py 或 scripts/dev.md 说明（后端启动 + 前端启动顺序）。Must NOT: 种子脚本不覆盖已有数据（检测到 admin 存在即跳过）；admin 默认密码仅限开发环境（README 醒目警示）。
   Parallelization: Wave 10 | Blocked by: 全部 1-23 | Blocks: 25
   References (executor has NO interview context - be exhaustive): plan.md §十五 15.2 M10（联调验收前置）
@@ -292,7 +292,7 @@ Your next move: 批准后运行 `$start-work competition-web` 开始执行（或
   QA scenarios: happy — 空库跑 seed 后 8+ 账号与演示比赛就绪；failure — 已初始化库再跑 seed 不产生重复，证据 .omo/evidence/task-24-competition-web.txt
   Commit: Y | feat: 种子数据与开发脚本
 
-- [ ] 25. 本地全链路联调验收（M10 验收清单）
+- [x] 25. 本地全链路联调验收（M10 验收清单）
   What to do / Must NOT do: 启动前后端，按 plan.md §十五 15.3 验收清单逐项走通：注册×6→组 2 支 3 人队→admin 建比赛（混合参赛、分组循环+三角占领）→个人+队伍报名→referee 开对局→**referee/admin 在玩法页替双方操作棋盘（occupy/cancel/end），选手登录只读（用户 2026-08-02 最终确认）**→收局→引擎推进→赛制结束→自动积分→排行榜正确→活动积分发放→流水可查→**连错密码 5 次锁定（Metis C2 修正：统一 5 次，非 6 次）**+流量页可见→admin 解封→再建瑞士轮与单败淘汰各一场验证→**瑞士轮奇数参赛单位轮空、单败淘汰平局裁判指定胜者（Metis E1/E2 演练）**→备份脚本跑通；产出验收记录 .omo/evidence/task-25-competition-web.md（每项 ✓/✗）。Must NOT: 不跳过任何验收项；验收发现问题回修对应 todo 后再验。
   Parallelization: Wave 10 | Blocked by: 全部 1-24 | Blocks: 26
   References (executor has NO interview context - be exhaustive): plan.md §十五 15.3（验收清单逐项）；Metis 审查 C2（锁定阈值统一 5 次）与 E1/E2（平局/轮空演练）；用户 2026-08-02 最终确认（仅 referee/admin 操作棋盘）

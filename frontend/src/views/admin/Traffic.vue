@@ -14,6 +14,75 @@
       </el-col>
     </el-row>
 
+    <el-card shadow="never" class="section-card">
+      <template #header>登录失败趋势（按动作类型）</template>
+      <div class="chart-wrap">
+        <div class="chart-block">
+          <div class="chart-title">24h 失败登录</div>
+          <div class="bars">
+            <div
+              v-for="b in failedBars24h"
+              :key="b.label"
+              class="bar-row"
+            >
+              <span class="bar-label">{{ b.label }}</span>
+              <div class="bar-track">
+                <div
+                  class="bar-fill"
+                  :style="{ width: barWidth(b.value, maxFailed24h) }"
+                ></div>
+              </div>
+              <span class="bar-value">{{ b.value }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="chart-block">
+          <div class="chart-title">7d 失败登录</div>
+          <div class="bars">
+            <div
+              v-for="b in failedBars7d"
+              :key="b.label"
+              class="bar-row"
+            >
+              <span class="bar-label">{{ b.label }}</span>
+              <div class="bar-track">
+                <div
+                  class="bar-fill"
+                  :style="{ width: barWidth(b.value, maxFailed7d) }"
+                ></div>
+              </div>
+              <span class="bar-value">{{ b.value }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="chart-compare">
+        <span class="compare-label">24h vs 7d 失败登录</span>
+        <div class="compare-bars">
+          <div class="compare-item">
+            <span class="compare-name">24h</span>
+            <div class="bar-track">
+              <div
+                class="bar-fill compare-24h"
+                :style="{ width: barWidth(summary.since_24h.failed_logins, maxFailedCompare) }"
+              ></div>
+            </div>
+            <span class="bar-value">{{ summary.since_24h.failed_logins }}</span>
+          </div>
+          <div class="compare-item">
+            <span class="compare-name">7d</span>
+            <div class="bar-track">
+              <div
+                class="bar-fill compare-7d"
+                :style="{ width: barWidth(summary.since_7d.failed_logins, maxFailedCompare) }"
+              ></div>
+            </div>
+            <span class="bar-value">{{ summary.since_7d.failed_logins }}</span>
+          </div>
+        </div>
+      </div>
+    </el-card>
+
     <el-row :gutter="16">
       <el-col :span="12">
         <el-card shadow="never">
@@ -22,6 +91,7 @@
             <el-table-column prop="ip" label="IP" />
             <el-table-column prop="count" label="次数" width="80" />
           </el-table>
+          <div class="table-hint">可结合下方审计日志按 IP 追溯具体行为</div>
         </el-card>
       </el-col>
       <el-col :span="12">
@@ -31,15 +101,28 @@
             <el-table-column prop="username" label="用户名" />
             <el-table-column prop="count" label="次数" width="80" />
           </el-table>
+          <div class="table-hint">可结合下方审计日志按用户名追溯具体行为</div>
         </el-card>
       </el-col>
     </el-row>
 
     <el-card shadow="never" class="section-card">
-      <template #header>当前锁定账号</template>
+      <template #header>
+        <div class="card-head">
+          <span>当前锁定账号</span>
+          <div class="lock-controls">
+            <span class="auto-label">自动刷新</span>
+            <el-switch v-model="autoRefresh" size="small" />
+          </div>
+        </div>
+      </template>
       <el-table :data="locked" size="small" border>
         <el-table-column prop="username" label="用户名" />
-        <el-table-column prop="remaining_seconds" label="剩余秒数" width="120" />
+        <el-table-column label="剩余时间" width="160">
+          <template #default="{ row }">
+            {{ formatRemaining(row.remaining_seconds) }}
+          </template>
+        </el-table-column>
       </el-table>
     </el-card>
 
@@ -52,7 +135,7 @@
             placeholder="按动作过滤"
             clearable
             style="width: 180px"
-            @change="loadLogs"
+            @change="onActionChange"
           >
             <el-option label="登录" value="login" />
             <el-option label="登录失败" value="login_failed" />
@@ -69,12 +152,21 @@
         <el-table-column prop="username" label="用户名" width="120" />
         <el-table-column prop="created_at" label="时间" min-width="180" />
       </el-table>
+      <div class="pager">
+        <el-pagination
+          layout="total, prev, pager, next"
+          :total="logTotal"
+          :page-size="logPageSize"
+          :current-page="logPage"
+          @current-change="onPageChange"
+        />
+      </div>
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { ElMessage } from 'element-plus'
 import http from '../../api/http'
 
@@ -82,6 +174,7 @@ interface SummaryBucket {
   login_attempts: number
   failed_logins: number
   registrations: number
+  actions_by_type: Record<string, number>
 }
 interface FailedLogins {
   top_ips: { ip: string; count: number }[]
@@ -101,13 +194,19 @@ interface LogItem {
 
 const loading = ref(false)
 const summary = ref<{ since_24h: SummaryBucket; since_7d: SummaryBucket }>({
-  since_24h: { login_attempts: 0, failed_logins: 0, registrations: 0 },
-  since_7d: { login_attempts: 0, failed_logins: 0, registrations: 0 },
+  since_24h: { login_attempts: 0, failed_logins: 0, registrations: 0, actions_by_type: {} },
+  since_7d: { login_attempts: 0, failed_logins: 0, registrations: 0, actions_by_type: {} },
 })
 const failed = ref<FailedLogins>({ top_ips: [], top_usernames: [] })
 const locked = ref<LockedItem[]>([])
 const logs = ref<LogItem[]>([])
 const actionFilter = ref('')
+const logTotal = ref(0)
+const logPage = ref(1)
+const logPageSize = 20
+
+const autoRefresh = ref(false)
+let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 const summaryCards = computed(() => [
   { label: '24h 登录尝试', value: summary.value.since_24h.login_attempts },
@@ -115,6 +214,46 @@ const summaryCards = computed(() => [
   { label: '24h 注册', value: summary.value.since_24h.registrations },
   { label: '7d 登录尝试', value: summary.value.since_7d.login_attempts },
 ])
+
+// 失败登录按动作类型分布（CSS 柱状图）
+const ACTION_LABELS: Record<string, string> = {
+  login_failed: '登录失败',
+  login: '登录',
+  register: '注册',
+  points_grant: '发放积分',
+  admin_update_user: '管理更新',
+}
+
+function toBars(bucket: SummaryBucket): { label: string; value: number }[] {
+  const entries = Object.entries(bucket.actions_by_type || {})
+    .filter(([k]) => k !== 'login_failed' || true)
+    .sort((a, b) => b[1] - a[1])
+  if (entries.length === 0) return [{ label: '暂无数据', value: 0 }]
+  return entries.map(([k, v]) => ({ label: ACTION_LABELS[k] ?? k, value: v }))
+}
+
+const failedBars24h = computed(() => toBars(summary.value.since_24h))
+const failedBars7d = computed(() => toBars(summary.value.since_7d))
+const maxFailed24h = computed(() =>
+  Math.max(1, ...failedBars24h.value.map((b) => b.value)),
+)
+const maxFailed7d = computed(() =>
+  Math.max(1, ...failedBars7d.value.map((b) => b.value)),
+)
+const maxFailedCompare = computed(() =>
+  Math.max(1, summary.value.since_24h.failed_logins, summary.value.since_7d.failed_logins),
+)
+
+function barWidth(value: number, max: number): string {
+  return `${Math.max(2, Math.round((value / max) * 100))}%`
+}
+
+function formatRemaining(seconds: number): string {
+  const s = Math.max(0, seconds)
+  const m = Math.floor(s / 60)
+  const sec = s % 60
+  return `剩余 ${m} 分 ${sec} 秒`
+}
 
 async function loadSummary() {
   const { data } = await http.get('/admin/traffic/summary')
@@ -129,8 +268,13 @@ async function loadLocked() {
   locked.value = data
 }
 async function loadLogs() {
-  const params = actionFilter.value ? { action: actionFilter.value } : {}
+  const params: Record<string, unknown> = {
+    page: logPage.value,
+    page_size: logPageSize,
+  }
+  if (actionFilter.value) params.action = actionFilter.value
   const { data } = await http.get('/admin/traffic/logs', { params })
+  logTotal.value = data.total
   logs.value = data.items.map((it: any) => ({
     id: it.id,
     action: it.action,
@@ -138,6 +282,15 @@ async function loadLogs() {
     username: it.detail?.username ?? '',
     created_at: it.created_at,
   }))
+}
+
+function onActionChange() {
+  logPage.value = 1
+  loadLogs()
+}
+function onPageChange(page: number) {
+  logPage.value = page
+  loadLogs()
 }
 
 async function loadAll() {
@@ -151,7 +304,24 @@ async function loadAll() {
   }
 }
 
-onMounted(loadAll)
+function startAutoRefresh() {
+  stopAutoRefresh()
+  refreshTimer = setInterval(() => {
+    loadLocked()
+  }, 15000)
+}
+function stopAutoRefresh() {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+}
+
+onMounted(() => {
+  loadAll()
+  startAutoRefresh()
+})
+onBeforeUnmount(stopAutoRefresh)
 </script>
 
 <style scoped>
@@ -183,5 +353,107 @@ onMounted(loadAll)
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+.chart-wrap {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+}
+.chart-block {
+  flex: 1;
+  min-width: 260px;
+}
+.chart-title {
+  font-size: 13px;
+  color: #909399;
+  margin-bottom: 12px;
+}
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.bar-label {
+  width: 80px;
+  font-size: 12px;
+  color: #606266;
+  text-align: right;
+  flex-shrink: 0;
+}
+.bar-track {
+  flex: 1;
+  height: 14px;
+  background: #f0f2f5;
+  border-radius: 7px;
+  overflow: hidden;
+}
+.bar-fill {
+  height: 100%;
+  background: #f56c6c;
+  border-radius: 7px;
+  transition: width 0.3s ease;
+}
+.bar-value {
+  width: 40px;
+  font-size: 12px;
+  color: #303133;
+  flex-shrink: 0;
+}
+.chart-compare {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #f0f2f5;
+}
+.compare-label {
+  font-size: 13px;
+  color: #909399;
+  display: block;
+  margin-bottom: 12px;
+}
+.compare-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.compare-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.compare-name {
+  width: 40px;
+  font-size: 12px;
+  color: #606266;
+  flex-shrink: 0;
+}
+.compare-24h {
+  background: #409eff;
+}
+.compare-7d {
+  background: #67c23a;
+}
+.table-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #909399;
+}
+.lock-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.auto-label {
+  font-size: 13px;
+  color: #606266;
+}
+.pager {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

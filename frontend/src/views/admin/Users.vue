@@ -6,9 +6,30 @@
         v-model="search"
         placeholder="按用户名搜索"
         clearable
-        style="width: 240px"
+        style="width: 200px"
         @input="loadUsers"
       />
+      <el-select
+        v-model="roleFilter"
+        placeholder="角色筛选"
+        clearable
+        style="width: 140px"
+      >
+        <el-option label="全部" value="" />
+        <el-option label="管理员" value="admin" />
+        <el-option label="裁判" value="referee" />
+        <el-option label="选手" value="player" />
+      </el-select>
+      <el-select
+        v-model="statusFilter"
+        placeholder="状态筛选"
+        clearable
+        style="width: 140px"
+      >
+        <el-option label="全部" value="" />
+        <el-option label="正常" value="active" />
+        <el-option label="封禁" value="banned" />
+      </el-select>
       <el-button type="primary" @click="loadUsers">刷新</el-button>
     </div>
 
@@ -16,7 +37,7 @@
       <el-table-column prop="id" label="ID" width="70" />
       <el-table-column prop="username" label="用户名" min-width="120" />
       <el-table-column prop="email" label="邮箱" min-width="180" />
-      <el-table-column label="角色" width="140">
+      <el-table-column label="角色" width="150">
         <template #default="{ row }">
           <el-select
             :model-value="row.role"
@@ -27,6 +48,14 @@
             <el-option label="裁判" value="referee" />
             <el-option label="选手" value="player" />
           </el-select>
+          <el-tag
+            :type="roleTagType(row.role)"
+            size="small"
+            effect="light"
+            class="role-tag"
+          >
+            {{ roleLabel(row.role) }}
+          </el-tag>
         </template>
       </el-table-column>
       <el-table-column label="状态" width="120">
@@ -56,9 +85,18 @@
           <el-input v-model="newPassword" type="password" show-password />
         </el-form-item>
       </el-form>
+      <div class="dialog-tip">密码至少 6 位</div>
       <template #footer>
         <el-button @click="resetVisible = false">取消</el-button>
         <el-button type="primary" :loading="resetting" @click="doReset">确认</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="banVisible" title="封禁确认" width="420px">
+      <p>确定要封禁用户 <b>{{ banTarget?.username }}</b> 吗？封禁后该用户将无法登录。</p>
+      <template #footer>
+        <el-button @click="banVisible = false">取消</el-button>
+        <el-button type="danger" :loading="banning" @click="confirmBan">确认封禁</el-button>
       </template>
     </el-dialog>
   </div>
@@ -81,11 +119,35 @@ interface UserRow {
 const users = ref<UserRow[]>([])
 const loading = ref(false)
 const search = ref('')
+const roleFilter = ref('')
+const statusFilter = ref('')
+
+const ROLE_LABELS: Record<string, string> = {
+  admin: '管理员',
+  referee: '裁判',
+  player: '选手',
+}
+const ROLE_TAGS: Record<string, 'danger' | 'warning' | 'info'> = {
+  admin: 'danger',
+  referee: 'warning',
+  player: 'info',
+}
+
+function roleLabel(role: string): string {
+  return ROLE_LABELS[role] ?? role
+}
+function roleTagType(role: string): 'danger' | 'warning' | 'info' {
+  return ROLE_TAGS[role] ?? 'info'
+}
 
 const filteredUsers = computed(() => {
   const q = search.value.trim().toLowerCase()
-  if (!q) return users.value
-  return users.value.filter((u) => u.username.toLowerCase().includes(q))
+  return users.value.filter((u) => {
+    if (q && !u.username.toLowerCase().includes(q)) return false
+    if (roleFilter.value && u.role !== roleFilter.value) return false
+    if (statusFilter.value && u.status !== statusFilter.value) return false
+    return true
+  })
 })
 
 async function loadUsers() {
@@ -101,22 +163,48 @@ async function loadUsers() {
 }
 
 async function changeRole(row: UserRow, role: string) {
+  if (role === row.role) return
   try {
-    const { data } = await http.patch<UserRow>(`/admin/users/${row.id}`, { role })
-    row.role = data.role
+    await http.patch<UserRow>(`/admin/users/${row.id}`, { role })
     ElMessage.success('角色已更新')
+    loadUsers()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '更新角色失败')
     loadUsers()
   }
 }
 
-async function toggleStatus(row: UserRow, active: boolean) {
-  const status = active ? 'active' : 'banned'
+const banVisible = ref(false)
+const banTarget = ref<UserRow | null>(null)
+const banning = ref(false)
+
+function toggleStatus(row: UserRow, active: boolean) {
+  if (active) {
+    // 解封：直接执行
+    setStatus(row, 'active')
+  } else {
+    // 封禁：先确认
+    banTarget.value = row
+    banVisible.value = true
+  }
+}
+
+async function confirmBan() {
+  if (!banTarget.value) return
+  banning.value = true
   try {
-    const { data } = await http.patch<UserRow>(`/admin/users/${row.id}`, { status })
-    row.status = data.status
-    ElMessage.success('状态已更新')
+    await setStatus(banTarget.value, 'banned')
+    banVisible.value = false
+  } finally {
+    banning.value = false
+  }
+}
+
+async function setStatus(row: UserRow, status: string) {
+  try {
+    await http.patch<UserRow>(`/admin/users/${row.id}`, { status })
+    ElMessage.success(status === 'active' ? '已解封' : '已封禁')
+    loadUsers()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '更新状态失败')
     loadUsers()
@@ -164,5 +252,14 @@ onMounted(loadUsers)
   display: flex;
   gap: 12px;
   margin-bottom: 16px;
+}
+.role-tag {
+  margin-left: 8px;
+}
+.dialog-tip {
+  color: #909399;
+  font-size: 12px;
+  margin-top: -8px;
+  margin-bottom: 8px;
 }
 </style>

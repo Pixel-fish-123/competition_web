@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Home from '../views/Home.vue'
 import Login from '../views/Login.vue'
 import Competitions from '../views/Competitions.vue'
+import CompetitionDetail from '../views/CompetitionDetail.vue'
 import Profile from '../views/Profile.vue'
 import MatchPlay from '../views/MatchPlay.vue'
 import AdminLayout from '../views/admin/AdminLayout.vue'
@@ -18,6 +19,7 @@ const router = createRouter({
     { path: '/', name: 'home', component: Home },
     { path: '/login', name: 'login', component: Login },
     { path: '/competitions', name: 'competitions', component: Competitions },
+    { path: '/competitions/:cid', name: 'competition-detail', component: CompetitionDetail },
     { path: '/competitions/:cid/matches/:mid', name: 'match-play', component: MatchPlay },
     {
       path: '/admin',
@@ -36,14 +38,26 @@ const router = createRouter({
 })
 
 // Admin guard: only users with role === 'admin' may access /admin/*.
+// Profile guard: /profile requires login (todo 22 will generalize auth guards).
 router.beforeEach(async (to) => {
-  if (!to.path.startsWith('/admin')) return true
   const auth = useAuthStore()
-  if (!auth.loaded) {
-    await auth.fetchMe()
+  if (to.path.startsWith('/admin')) {
+    if (!auth.loaded) {
+      await auth.fetchMe()
+    }
+    if (auth.user?.role !== 'admin') {
+      return { path: '/' }
+    }
+    return true
   }
-  if (auth.user?.role !== 'admin') {
-    return { path: '/' }
+  if (to.path === '/profile') {
+    if (!auth.loaded) {
+      await auth.fetchMe()
+    }
+    if (!auth.user) {
+      return { path: '/login' }
+    }
+    return true
   }
   return true
 })

@@ -107,7 +107,12 @@ def _replay_finished(db: Session, competition: Competition, engine: TournamentEn
 
 
 def _require_assigned_referee(competition: Competition, referee: User) -> None:
-    """Metis E3：裁判必须在该比赛的 referee_ids 内，否则 403。"""
+    """Metis E3：裁判必须在该比赛的 referee_ids 内，否则 403。
+
+    admin 拥有最高权限，旁路该校验（用户确认：管理员应能直接操作任何比赛）。
+    """
+    if referee.role == "admin":
+        return
     if referee.id not in (competition.referee_ids or []):
         raise HTTPException(status_code=403, detail="非本场比赛裁判")
 

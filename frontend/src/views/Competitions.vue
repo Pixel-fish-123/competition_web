@@ -4,42 +4,35 @@
       <h1>竞赛列表</h1>
     </div>
 
-    <div v-loading="loading" class="comp-grid">
+    <div v-loading="loading" class="comp-list">
       <el-empty v-if="!loading && competitions.length === 0" description="暂无比赛" />
-      <el-card
+      <div
         v-for="c in competitions"
         :key="c.id"
-        class="comp-card"
-        shadow="hover"
+        class="comp-row"
         @click="goDetail(c)"
       >
-        <div class="comp-card__banner" :class="`banner-${(c.id % 4) + 1}`">
-          <span class="comp-card__banner-text">{{ c.name }}</span>
+        <div class="comp-row__main">
+          <span class="comp-row__name">{{ c.name }}</span>
+          <el-tag size="small" :type="statusType(c.status)">
+            {{ statusLabel(c.status) }}
+          </el-tag>
         </div>
-        <div class="comp-card__body">
-          <div class="comp-card__title-row">
-            <h3>{{ c.name }}</h3>
-            <el-tag :type="statusType(c.status)" size="small" effect="dark">
-              {{ statusLabel(c.status) }}
-            </el-tag>
-          </div>
-          <p class="comp-card__desc">{{ c.description || '暂无描述' }}</p>
-          <div class="comp-card__meta">
-            <span>{{ participantLabel(c.participant_type) }}</span>
-            <span>{{ formatLabel(c.tournament_format) }}</span>
-            <span>上限 {{ c.max_participants }}</span>
-          </div>
-          <div class="comp-card__actions">
-            <el-button
-              type="primary"
-              :disabled="c.status !== 'registration'"
-              @click.stop="goDetail(c)"
-            >
-              {{ c.status === 'registration' ? '立即报名' : '查看详情' }}
-            </el-button>
-          </div>
+        <div class="comp-row__meta">
+          <span>{{ formatLabel(c.tournament_format) }}</span>
+          <span>{{ participantLabel(c.participant_type) }}</span>
+          <span>上限 {{ c.max_participants }} 人</span>
         </div>
-      </el-card>
+        <div class="comp-row__action">
+          <el-button
+            size="small"
+            :type="c.status === 'registration' ? 'primary' : 'default'"
+            @click.stop="goDetail(c)"
+          >
+            {{ c.status === 'registration' ? '立即报名' : '查看详情' }}
+          </el-button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -123,7 +116,7 @@ onMounted(loadCompetitions)
 
 <style scoped>
 .page {
-  max-width: 1100px;
+  max-width: 1000px;
   margin: 0 auto;
 }
 .page__head {
@@ -132,70 +125,61 @@ onMounted(loadCompetitions)
 .page__head h1 {
   margin: 0;
 }
-.comp-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 20px;
+.comp-list {
+  display: flex;
+  flex-direction: column;
   min-height: 120px;
 }
-.comp-card {
+.comp-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #ebeef5;
   cursor: pointer;
+  transition: background-color 0.2s;
 }
-.comp-card__banner {
-  height: 120px;
+.comp-row:hover {
+  background-color: #f5f7fa;
+}
+.comp-row__main {
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 20px;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.comp-row__name {
+  font-size: 15px;
   font-weight: 600;
-  border-radius: 4px;
+  color: #303133;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.banner-1 {
-  background: linear-gradient(135deg, #409eff, #79bbff);
-}
-.banner-2 {
-  background: linear-gradient(135deg, #67c23a, #95d475);
-}
-.banner-3 {
-  background: linear-gradient(135deg, #e6a23c, #f3d19e);
-}
-.banner-4 {
-  background: linear-gradient(135deg, #f56c6c, #f89898);
-}
-.comp-card__body {
-  padding: 4px 0;
-}
-.comp-card__title-row {
+.comp-row__meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.comp-card__title-row h3 {
-  margin: 0;
-  font-size: 18px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.comp-card__desc {
+  gap: 16px;
+  font-size: 13px;
   color: #909399;
-  font-size: 13px;
-  margin: 8px 0;
-  min-height: 20px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.comp-card__meta {
-  display: flex;
-  gap: 12px;
-  font-size: 13px;
-  color: #606266;
-  margin-bottom: 12px;
+.comp-row__action {
+  flex-shrink: 0;
 }
-.comp-card__actions {
-  text-align: right;
+@media (max-width: 640px) {
+  .comp-row {
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
+  .comp-row__main {
+    flex: 1 1 100%;
+  }
+  .comp-row__meta {
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+  }
 }
 </style>

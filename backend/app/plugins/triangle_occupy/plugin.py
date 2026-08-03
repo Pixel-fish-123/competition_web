@@ -101,7 +101,12 @@ class TriangleOccupyPlugin(GameplayPlugin):
         return game, cells
 
     def _restore_controller(self, state: dict) -> GameController:
-        """从序列化 state 重建控制器（todo 14 DB 恢复桥；Metis E9 时钟修复）。"""
+        """从序列化 state 重建控制器（todo 14 DB 恢复桥；Metis E9 时钟修复）。
+
+        除重建棋盘与校准时钟外，还从 ``controller_state`` 恢复已发生的
+        占领进度/比分/包围/L1/胜负，保证 DB 恢复（WS 重连、页面刷新、
+        服务重启）后看到的是对局当前状态而非初始空棋盘。
+        """
         game = GameController()
         cells = state.get("cells_data")
         if cells is None:
@@ -111,6 +116,38 @@ class TriangleOccupyPlugin(GameplayPlugin):
         cs = state.get("controller_state") or {}
         if isinstance(cs.get("time_limit"), (int, float)):
             game.time_limit_minutes = float(cs["time_limit"])
+        board = cs.get("board")
+        if isinstance(board, list):
+            for cell_dict, cell in zip(board, game.cells):
+                owner = cell_dict.get("owner")
+                cell.owner = owner if owner in ("defender", "attacker") else None
+                cell.activated = bool(cell_dict.get("activated", False))
+                bonus = cell_dict.get("energy_bonus")
+                if isinstance(bonus, (int, float)):
+                    cell.energy_bonus = int(bonus)
+        scores = cs.get("scores") or {}
+        if isinstance(scores.get("defender"), (int, float)):
+            game.defender_score = float(scores["defender"])
+        if isinstance(scores.get("attacker"), (int, float)):
+            game.attacker_score = float(scores["attacker"])
+        l1 = cs.get("l1") or {}
+        if isinstance(l1, dict):
+            hs = l1.get("high_score")
+            game.l1_high_score = int(hs) if isinstance(hs, (int, float)) else None
+            ht = l1.get("high_tp")
+            game.l1_high_tp = float(ht) if isinstance(ht, (int, float)) else None
+            game.l1_high_team = l1.get("holder")
+        encircled = cs.get("encircled")
+        if isinstance(encircled, list):
+            game.encircled_cells = {
+                int(i) for i in encircled if isinstance(i, (int, float))
+            }
+            game.encirclement_active = bool(encircled)
+        if cs.get("game_over"):
+            game.game_over = True
+            game.winner = cs.get("winner")
+            game.win_type = cs.get("win_type")
+        game.elapsed_minutes = float(state.get("elapsed_minutes", 0.0) or 0.0)
         return game
 
     def _get_controller(self, state: dict) -> GameController:

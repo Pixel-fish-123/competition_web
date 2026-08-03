@@ -212,6 +212,30 @@ def test_submit_result_restores_controller_when_live_instance_missing(plugin):
     assert new_state["last_action"]["ok"] is True
 
 
+def test_restore_controller_keeps_board_progress_and_result(plugin):
+    """Metis E9 + todo 14 DB 桥：恢复时保留已占领进度/比分/胜负（重连不丢盘）。"""
+    state = plugin.create_session(1, _config())
+    # 防守方占领 L1(score=80) + L2 格1，模拟对局已有进度
+    state = plugin.submit_result(1, state, 101, {"action": "occupy", "cell_id": 0, "score": 80})
+    state = plugin.submit_result(1, state, 101, {"action": "occupy", "cell_id": 1, "score": 90})
+    progress = state["controller_state"]
+    assert progress["board"][1]["owner"] == "defender"
+    # 活实例丢失（重启/DB 恢复场景）
+    plugin_mod._CONTROLLERS.pop(id(state), None)
+    restored = plugin._restore_controller(state)
+    # 棋盘进度保留：L1 归属 + 已占格 owner + 比分
+    assert restored.cells[0].owner == "defender"
+    assert restored.cells[1].owner == "defender"
+    assert restored.l1_high_score == 80
+    assert restored.defender_score > 0
+    # 恢复后的控制器可正常收局，胜者映射回选手
+    state2 = dict(state)
+    state2["controller_state"] = restored.to_state_dict()
+    result = plugin.end_session(1, state2)
+    assert result["is_draw"] is False
+    assert result["winner"] == 101  # defender -> participant 101
+
+
 def test_get_state_returns_public_view(plugin):
     state = plugin.create_session(1, _config())
     view = plugin.get_state(1, state)

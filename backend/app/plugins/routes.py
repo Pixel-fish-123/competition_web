@@ -19,12 +19,15 @@
 from __future__ import annotations
 
 import itertools
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from app.core.rbac import get_current_user, require_referee
 from app.core.ws_manager import manager
+from app.db import SessionLocal
+from app.models.match import GameSession
 from app.models.user import User
 from app.plugins.base import GameplayPlugin
 from app.plugins.registry import registry
@@ -59,11 +62,71 @@ def _get_plugin(name: str) -> GameplayPlugin:
     return plugin
 
 
+def _load_db_session(session_id: int) -> dict | None:
+    """DB 持久化会话（/api/matches/{id}/start 路径）的回退装载。
+
+    玩法 action/end 路由原本只认内存 ``_sessions``，而 start_match 只落库
+    GameSession，导致前端对局页流程（start -> WS session_id -> action/end）
+    404「对局会话不存在」。这里把 ``_sessions`` 当作缓存，内存缺失时按
+    session_id 从 GameSession 表恢复（todo 14 的 DB 桥；插件侧
+    _restore_controller 负责重建活控制器并校准时钟）。
+    """
+    with SessionLocal() as db:
+        gs = db.get(GameSession, session_id)
+        if gs is None:
+            return None
+        plugin = registry.get(gs.plugin_name)
+        if plugin is None:
+            raise HTTPException(status_code=404, detail="玩法插件不存在")
+        state = gs.state_json or {}
+        # JSON 往返后 sides 的键变成字符串（"3"/"4"），validate_result 用 int
+        # participant_id 匹配；与插件 create_session 的 _resolve_sides 一致的
+        # 规范化，保证 DB 恢复的会话行为与内存会话一致。
+        sides = state.get("sides")
+        if isinstance(sides, dict):
+            state = dict(state)
+            state["sides"] = {
+                int(k) if isinstance(k, str) and k.isdigit() else k: v
+                for k, v in sides.items()
+            }
+        return {
+            "plugin": plugin,
+            "state": state,
+            "match_id": gs.match_id,
+            "db": gs.id,  # 标记 DB 持久化：操作后回写 state_json
+        }
+
+
 def _get_session(session_id: int) -> dict:
     session = _sessions.get(session_id)
     if session is None:
-        raise HTTPException(status_code=404, detail="对局会话不存在")
+        session = _load_db_session(session_id)
+        if session is None:
+            raise HTTPException(status_code=404, detail="对局会话不存在")
+        _sessions[session_id] = session
     return session
+
+
+def _persist_session(session: dict, state: dict, ended: bool = False) -> None:
+    """DB 持久化会话操作后回写 state_json（尽力而为，失败不影响玩法操作）。
+
+    仅对来自 GameSession 表的会话生效（``db`` 标记）；纯内存会话（测试/插件
+    直建路径）不落库，行为与原来完全一致。
+    """
+    db_id = session.get("db")
+    if db_id is None:
+        return
+    try:
+        with SessionLocal() as db:
+            gs = db.get(GameSession, db_id)
+            if gs is not None:
+                gs.state_json = state
+                if ended:
+                    gs.ended_at = datetime.now(timezone.utc)
+                db.commit()
+    except Exception:
+        # 持久化是尽力而为的增强，不应让玩法操作因落库失败而 5xx。
+        pass
 
 
 def _build_plugin_router(plugin: GameplayPlugin) -> APIRouter:
@@ -121,6 +184,7 @@ def _build_plugin_router(plugin: GameplayPlugin) -> APIRouter:
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         session["state"] = new_state
+        _persist_session(session, new_state)
         # todo 15：玩法操作后把最新公开状态广播给该对局的 WS 订阅者。
         try:
             view = plugin.get_state(session_id, new_state)
@@ -143,6 +207,15 @@ def _build_plugin_router(plugin: GameplayPlugin) -> APIRouter:
             result = plugin.end_session(session_id, session["state"])
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
+        # DB 持久化会话：回写最终状态（含 cells_data，供 DB 恢复桥）并置 ended_at。
+        try:
+            controller = plugin._get_controller(session["state"])
+            final_state = dict(session["state"])
+            final_state["controller_state"] = controller.to_state_dict()
+            final_state["elapsed_minutes"] = controller.elapsed()
+            _persist_session(session, final_state, ended=True)
+        except Exception:
+            _persist_session(session, session["state"], ended=True)
         _sessions.pop(session_id, None)
         # todo 15：会话结束广播，通知订阅者对局已完结。
         manager.broadcast(

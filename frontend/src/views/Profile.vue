@@ -121,6 +121,10 @@ interface Registration {
   status: string
 }
 
+interface MyRegistrationsResp {
+  registrations: Registration[]
+}
+
 interface PointTx {
   id: number
   amount: number
@@ -200,8 +204,8 @@ async function loadMyTeam() {
 async function loadMyRegistrations() {
   regLoading.value = true
   try {
-    const { data } = await http.get<Registration[]>('/my/registrations')
-    myRegistrations.value = data
+    const { data } = await http.get<MyRegistrationsResp>('/my/registrations')
+    myRegistrations.value = data.registrations
   } catch {
     myRegistrations.value = []
   } finally {

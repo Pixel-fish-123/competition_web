@@ -212,7 +212,7 @@ Your next move: 批准后运行 `$start-work competition-web` 开始执行（或
   QA scenarios: happy — 完整 对局 start→玩法→end→排名推进 链；failure — 未开始对局直接 end 400、非指派裁判 start 403，证据 .omo/evidence/task-14-competition-web.txt
   Commit: Y | feat: 对局生命周期与玩法会话
 
-- [ ] 15. WebSocket 实时推送 + 对局状态订阅
+- [x] 15. WebSocket 实时推送 + 对局状态订阅
   What to do / Must NOT do: core/ws_manager.py（连接管理器：连接/断开、按 match_id 订阅、broadcast_state 单进程广播）；api/ws.py（/ws/matches/{match_id} 端点：**Cookie 鉴权（Metis E13 修正）：仅参赛双方成员、该比赛 referee_ids 裁判、admin 可订阅；拒绝其他用户 403**，推送 GameSession.state_json 变更）；玩法会话状态变更时触发广播（service 层回调）。Must NOT: 不做多进程/Redis 方案；不广播敏感管理数据；**不做匿名 WS 连接**。
   Parallelization: Wave 7 | Blocked by: 11,14 | Blocks: 16,18
   References (executor has NO interview context - be exhaustive): demo/api/routes.py:21-41（broadcast_state 模式）、165-176（WS 端点模式）；Metis 审查 E13（WS 无鉴权风险，本 todo 固化 Cookie 鉴权+订阅白名单）

@@ -138,22 +138,38 @@ def test_competition_rankings_unknown_competition_404(admin_client):
     assert resp.json()["detail"] == "比赛不存在"
 
 
+def _grant_manual_points(admin_client, user_id, amount):
+    """Admin manual grant endpoint (finished no longer auto-settles; todo 9)."""
+    resp = admin_client.post(
+        "/api/admin/points",
+        json={
+            "user_id": user_id,
+            "amount": amount,
+            "kind": "manual",
+            "reason": "手动发放",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+
 def test_global_rankings_delegate_to_leaderboard(admin_client):
-    comp_id, _ = _run_competition(admin_client, admin_client)
-    # Finish the competition so settlement creates the transactions.
-    assert _transition(admin_client, comp_id, "finished").status_code == 200
+    _, player_ids = _run_competition(admin_client, admin_client)
+    # Seed leaderboard transactions via the admin manual grant endpoint.
+    for pid in player_ids:
+        _grant_manual_points(admin_client, pid, 10.0)
 
     resp = admin_client.get("/api/rankings/global")
     assert resp.status_code == 200, resp.text
     rows = resp.json()
     assert len(rows) == 6
-    assert [row["total"] for row in rows] == [100.0, 60.0, 40.0, 10.0, 10.0, 10.0]
+    assert [row["total"] for row in rows] == [10.0] * 6
     assert set(rows[0]) == {"user_id", "username", "total", "competition_sum", "activity_sum"}
 
 
 def test_rankings_global_matches_points_leaderboard(admin_client):
-    comp_id, _ = _run_competition(admin_client, admin_client)
-    assert _transition(admin_client, comp_id, "finished").status_code == 200
+    _, player_ids = _run_competition(admin_client, admin_client)
+    for pid in player_ids:
+        _grant_manual_points(admin_client, pid, 10.0)
     g = admin_client.get("/api/rankings/global").json()
     lb = admin_client.get("/api/points/leaderboard").json()
     assert g == lb

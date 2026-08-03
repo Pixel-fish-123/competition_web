@@ -1,13 +1,17 @@
-"""Admin-only user management endpoints (todo 5): list users, change
+"""Admin-only user management endpoints (todo 5/7): list users, create
+accounts, hard-delete accounts (with manual cascade cleanup), change
 role/status, reset password.
 
 Every route is gated by ``require_admin`` at the router level (403 for
-non-admins, 401 for unauthenticated/banned users). Todo 16: audit logging
-on role/status changes, lockout reset when an account is re-activated,
-and a 60/minute per-IP rate limit.
+non-admins, 401 for unauthenticated/banned users). Audit logging on
+role/status changes, account create/delete, lockout reset when an account
+is re-activated, and a 60/minute per-IP rate limit.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_audit
@@ -16,13 +20,40 @@ from app.core.ratelimit import limiter
 from app.core.rbac import require_admin
 from app.core.security import hash_password
 from app.db import get_db
+from app.models.audit_log import AuditLog
+from app.models.competition import Competition
+from app.models.match import Match
+from app.models.point import PointTransaction
+from app.models.registration import Registration
+from app.models.team import Team, TeamMember
 from app.models.user import User
-from app.schemas.user import UserOut, UserPatchRequest
+from app.schemas.user import EMAIL_RE, UserOut, UserPatchRequest
 
 router = APIRouter(dependencies=[Depends(require_admin)])
 
 VALID_ROLES = {"admin", "referee", "player"}
 VALID_STATUSES = {"active", "banned"}
+
+
+class UserCreateRequest(BaseModel):
+    """Admin-created account payload (todo 7): username/email/password/role.
+
+    Email policy mirrors ``RegisterRequest``; password length policy matches
+    the register / reset-password endpoints.
+    """
+
+    username: str = Field(min_length=3, max_length=20)
+    email: str
+    password: str = Field(min_length=6, max_length=64)
+    role: str
+
+    @field_validator("email")
+    @classmethod
+    def _validate_email(cls, value: str) -> str:
+        value = value.strip()
+        if len(value) > 120 or not EMAIL_RE.match(value):
+            raise ValueError("邮箱格式不正确")
+        return value
 
 
 @router.get("/api/admin/users", response_model=list[UserOut])
@@ -39,6 +70,138 @@ def list_plugins(request: Request):
     from app.plugins.registry import registry
 
     return [{"name": p.name, "version": p.version} for p in registry.all()]
+
+
+@router.post("/api/admin/users", response_model=UserOut)
+@limiter.limit("60/minute")
+def create_user(
+    payload: UserCreateRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """创建账号（admin only，todo 7）：角色/密码直接指定，创建后立即可登录。
+
+    role 必须是 admin/referee/player 之一；username/email 唯一（与注册一致）。
+    """
+    if payload.role not in VALID_ROLES:
+        raise HTTPException(status_code=400, detail="无效的角色")
+    if db.query(User).filter(User.username == payload.username).first() is not None:
+        raise HTTPException(status_code=400, detail="用户名已存在")
+    if db.query(User).filter(User.email == payload.email).first() is not None:
+        raise HTTPException(status_code=400, detail="邮箱已被注册")
+
+    user = User(
+        username=payload.username,
+        email=payload.email,
+        password_hash=hash_password(payload.password),
+        role=payload.role,
+        status="active",
+    )
+    db.add(user)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="用户名或邮箱已存在")
+    db.refresh(user)
+
+    ip = request.client.host if request.client else "unknown"
+    log_audit(
+        db,
+        current_user.id,
+        "admin_create_user",
+        ip,
+        request.headers.get("user-agent"),
+        {"username": user.username, "role": user.role},
+    )
+    return user
+
+
+@router.delete("/api/admin/users/{user_id}")
+@limiter.limit("60/minute")
+def delete_user(
+    user_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """硬删除用户（todo 7）：手工级联清理其业务数据。
+
+    SQLite 的 FK 仅 metadata（无 ON DELETE CASCADE 触发），删除前必须按
+    子行在前顺序手工清理：Registration/PointTransaction/TeamMember 删行、
+    队长所属队伍先清成员再删队、AuditLog.user_id 与 Match.referee_id 置 NULL
+    （保留审计追溯、避免悬空）。保护规则见下方注释。
+    """
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    # 保护规则（顺序）：不能删自己 -> 不能删最后一个 admin -> 不能删创建过
+    # 比赛的用户（Competition.created_by FK NOT NULL，删除会悬空）-> 不能删
+    # 有未完结对局的参赛者（避免打破赛程）。
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="不能删除自己")
+    if user.role == "admin":
+        admin_count = db.query(User).filter(User.role == "admin").count()
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="不能删除最后一个管理员")
+    if (
+        db.query(Competition)
+        .filter(Competition.created_by == user_id)
+        .count()
+        > 0
+    ):
+        raise HTTPException(status_code=400, detail="该用户创建了比赛，无法删除")
+    unfinished = (
+        db.query(Match)
+        .filter(
+            or_(Match.participant_a == user_id, Match.participant_b == user_id),
+            Match.status != "finished",
+        )
+        .count()
+    )
+    if unfinished > 0:
+        raise HTTPException(status_code=400, detail="该用户有未完结对局")
+
+    # 级联清理（子行在前，见函数 docstring）。
+    db.query(Registration).filter(Registration.user_id == user_id).delete(
+        synchronize_session=False
+    )
+    db.query(PointTransaction).filter(PointTransaction.user_id == user_id).delete(
+        synchronize_session=False
+    )
+    db.query(TeamMember).filter(TeamMember.user_id == user_id).delete(
+        synchronize_session=False
+    )
+    # 队长所属队伍：先清该队全部成员行，再删队（Registration.user_id 已在上面
+    # 清掉，不会残留指向该队的报名）。
+    for team in db.query(Team).filter(Team.captain_id == user_id).all():
+        db.query(TeamMember).filter(TeamMember.team_id == team.id).delete(
+            synchronize_session=False
+        )
+        db.delete(team)
+    # 审计保留追溯：被删用户的旧审计置 NULL（detail 仍含 username）。
+    db.query(AuditLog).filter(AuditLog.user_id == user_id).update(
+        {"user_id": None}, synchronize_session=False
+    )
+    # 裁判悬空保护：Match.referee_id 可空，置 NULL 保留对局。
+    db.query(Match).filter(Match.referee_id == user_id).update(
+        {"referee_id": None}, synchronize_session=False
+    )
+
+    # 删除前写审计（actor 是当前 admin，不是被删用户）。
+    ip = request.client.host if request.client else "unknown"
+    log_audit(
+        db,
+        current_user.id,
+        "admin_delete_user",
+        ip,
+        request.headers.get("user-agent"),
+        {"target_user": user.username, "target_role": user.role},
+    )
+    db.delete(user)
+    db.commit()
+    return {"ok": True}
 
 
 @router.patch("/api/admin/users/{user_id}", response_model=UserOut)

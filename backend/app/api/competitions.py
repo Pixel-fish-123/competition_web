@@ -6,7 +6,7 @@ Routes:
 - POST   /api/competitions                  admin create (referee_ids validated)
 - PATCH  /api/competitions/{id}             admin partial update
 - POST   /api/competitions/{id}/status      admin state-machine transition
-- DELETE /api/competitions/{id}             admin delete (draft/cancelled only)
+- DELETE /api/competitions/{id}             admin delete (draft/cancelled/finished only)
 
 Status machine (enforced here): draft → registration → ongoing → finished;
 cancelled may be entered from draft or registration only; finished is terminal.
@@ -21,7 +21,8 @@ from sqlalchemy.orm import Session
 from app.core.rbac import require_admin
 from app.db import get_db
 from app.models.competition import Competition
-from app.models.match import Match
+from app.models.match import GameSession, Match
+from app.models.point import PointTransaction
 from app.models.registration import Registration
 from app.models.user import User
 from app.schemas.competition import (
@@ -30,7 +31,7 @@ from app.schemas.competition import (
     CompetitionStatusUpdate,
     CompetitionUpdate,
 )
-from app.services import match_service, points_service
+from app.services import match_service
 
 router = APIRouter()
 
@@ -43,7 +44,7 @@ TRANSITIONS: dict[str, set[str]] = {
     "cancelled": set(),  # terminal
 }
 
-DELETABLE_STATUSES = ("draft", "cancelled")
+DELETABLE_STATUSES = ("draft", "cancelled", "finished")
 
 
 def _get_competition_or_404(db: Session, competition_id: int) -> Competition:
@@ -165,12 +166,9 @@ def change_status(
         )
         if unfinished:
             raise HTTPException(status_code=400, detail="存在未完成的对局")
-        # todo 17：进入 finished 时自动按 points_rule 结算积分（幂等；
-        # 结算本身会拒绝未完成对局，此处守卫已先拦 400）。
-        try:
-            points_service.settle_competition_points(db, competition)
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        # todo 9（用户确认 ①A）：积分改为 admin 纯手动发放，进入 finished
+        # 不再自动结算（points_service.settle_competition_points 仅保留
+        # 供手动/测试调用）。
 
     competition.status = payload.status
     db.commit()
@@ -184,14 +182,31 @@ def delete_competition(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """Admin-only delete, allowed only for draft/cancelled competitions.
+    """Admin-only delete, allowed only for draft/cancelled/finished competitions.
 
-    Registrations are removed explicitly (SQLite FKs are metadata-only by
-    default, so no ON DELETE CASCADE fires).
+    Business data is removed explicitly (SQLite FKs are metadata-only by
+    default, so no ON DELETE CASCADE fires): GameSession (via Match), Match,
+    PointTransaction and Registration. AuditLog is intentionally preserved.
     """
     competition = _get_competition_or_404(db, competition_id)
     if competition.status not in DELETABLE_STATUSES:
-        raise HTTPException(status_code=400, detail="比赛已开始或已结束，无法删除")
+        raise HTTPException(status_code=400, detail="进行中的比赛无法删除")
+    # Cascade order matters: GameSession FK references Match, so delete
+    # sessions before their parent Match rows.
+    match_ids = [
+        m.id
+        for m in db.query(Match.id).filter(Match.competition_id == competition.id).all()
+    ]
+    if match_ids:
+        db.query(GameSession).filter(
+            GameSession.match_id.in_(match_ids)
+        ).delete(synchronize_session=False)
+    db.query(Match).filter(
+        Match.competition_id == competition.id
+    ).delete(synchronize_session=False)
+    db.query(PointTransaction).filter(
+        PointTransaction.ref_competition_id == competition.id
+    ).delete(synchronize_session=False)
     db.query(Registration).filter(Registration.competition_id == competition.id).delete()
     db.delete(competition)
     db.commit()

@@ -1,10 +1,12 @@
-"""TDD tests for 双轨积分流水、比赛结算与排行榜后端 (todo 17).
+"""TDD tests for 双轨积分流水、比赛结算（手动调用）与排行榜后端 (todo 17, 9).
 
 Flows: individual round-robin competition (points_rule) -> finish all matches
--> transition finished (auto-settle) -> verify PointTransaction rows / balance /
-leaderboard. Team competition: each member receives the FULL rank amount
-(Metis C6/E15, reason notes 队伍<队名>). Admin activity grants and the
-permission gates (player 403, anonymous 401) round the suite out.
+-> transition finished (NO auto-settle; todo 9 用户确认 ①A) -> tests that need
+competition rewards call ``points_service.settle_competition_points`` directly
+-> verify PointTransaction rows / balance / leaderboard. Team competition:
+each member receives the FULL rank amount (Metis C6/E15, reason notes
+队伍<队名>). Admin manual grants (kind=manual) and the permission gates
+(player 403, anonymous 401) round the suite out.
 """
 
 from app.db import SessionLocal
@@ -124,7 +126,9 @@ def _play_all_matches(client, referee_token, competition_id):
 
 
 def _run_individual_competition(client, admin_client, **overrides):
-    """Full flow through to finished (auto-settled). Returns player ids/tokens."""
+    """Full flow through to finished (no auto-settle since todo 9). Returns
+    player ids/tokens. Callers that need competition rewards must invoke
+    ``_settle_via_service`` explicitly."""
     admin_token = admin_client.cookies.get("token")
     referee_id, referee_token = _make_referee(admin_client, admin_token)
     comp_id = _create_ok(admin_client, referee_ids=[referee_id], **overrides)
@@ -152,21 +156,52 @@ def _transactions_for_competition(competition_id):
         )
 
 
+def _settle_via_service(competition_id):
+    """Directly invoke the retained settlement service.
+
+    finished 流转已移除自动结算（todo 9），结算逻辑只保留在服务层供手动/
+    测试调用 —— 需要 competition 流水的测试显式调用本 helper。
+    """
+    with SessionLocal() as db:
+        comp = db.get(Competition, competition_id)
+        return points_service.settle_competition_points(db, comp)
+
+
 # ------------------------------------------------------- settlement on finish
 
 
-def test_finish_competition_auto_settles_transactions(admin_client):
-    comp_id, _, _ = _run_individual_competition(admin_client, admin_client)
-    txs = _transactions_for_competition(comp_id)
-    # 6 players -> 6 competition rewards (100/60/40 + 3x default 10).
-    assert len(txs) == 6
-    assert sorted(tx.amount for tx in txs) == [10, 10, 10, 40, 60, 100]
-    assert all(tx.kind == "competition" for tx in txs)
-    assert all(tx.ref_competition_id == comp_id for tx in txs)
+def test_finish_competition_produces_no_auto_transactions(admin_client):
+    comp_id, player_ids, _ = _run_individual_competition(admin_client, admin_client)
+    # finished 流转已移除自动结算：不得产生任何 competition 流水。
+    assert _transactions_for_competition(comp_id) == []
+
+    # Admin 手动发放仍然可用，产生一笔 manual 流水。
+    resp = admin_client.post(
+        "/api/admin/points",
+        json={
+            "user_id": player_ids[0],
+            "amount": 100.0,
+            "kind": "manual",
+            "reason": "手动奖励",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    with SessionLocal() as db:
+        txs = (
+            db.query(PointTransaction)
+            .filter(
+                PointTransaction.user_id == player_ids[0],
+                PointTransaction.kind == "manual",
+            )
+            .all()
+        )
+    assert len(txs) == 1
+    assert txs[0].amount == 100.0
 
 
 def test_individual_rewards_follow_points_rule_and_reason(admin_client):
     comp_id, player_ids, _ = _run_individual_competition(admin_client, admin_client)
+    _settle_via_service(comp_id)
     with SessionLocal() as db:
         comp = db.get(Competition, comp_id)
         standings = points_service.get_competition_standings(db, comp)
@@ -192,6 +227,7 @@ def test_points_rule_missing_rank_grants_default_when_present(admin_client):
     comp_id, _, _ = _run_individual_competition(
         admin_client, admin_client, points_rule={"1": 100, "default": 10}
     )
+    _settle_via_service(comp_id)
     txs = _transactions_for_competition(comp_id)
     assert len(txs) == 6
     assert sorted(tx.amount for tx in txs) == [10, 10, 10, 10, 10, 100]
@@ -202,6 +238,7 @@ def test_points_rule_no_default_grants_zero_to_unranked(admin_client):
     comp_id, _, _ = _run_individual_competition(
         admin_client, admin_client, points_rule={"1": 100}
     )
+    _settle_via_service(comp_id)
     txs = _transactions_for_competition(comp_id)
     assert len(txs) == 1
     assert txs[0].amount == 100
@@ -210,6 +247,8 @@ def test_points_rule_no_default_grants_zero_to_unranked(admin_client):
 
 def test_settle_is_idempotent(admin_client):
     comp_id, _, _ = _run_individual_competition(admin_client, admin_client)
+    # finished 不再自动结算：首次手动调用产生 6 条流水，再次调用返回 []。
+    assert len(_settle_via_service(comp_id)) == 6
     assert len(_transactions_for_competition(comp_id)) == 6
 
     with SessionLocal() as db:
@@ -313,6 +352,7 @@ def test_team_reward_full_amount_to_each_member(admin_client):
     comp_id, team_a_id, team_a_ids, team_b_id, team_b_ids = _run_team_competition(
         admin_client, admin_client
     )
+    _settle_via_service(comp_id)
     txs = _transactions_for_competition(comp_id)
     # 3 team-A members x full 100 + team-B captain x 60 = 4 transactions.
     assert len(txs) == 4
@@ -342,7 +382,8 @@ def _player_points_me(client, token):
 
 
 def test_points_me_returns_balance_and_transactions(admin_client):
-    _, _, player_tokens = _run_individual_competition(admin_client, admin_client)
+    comp_id, _, player_tokens = _run_individual_competition(admin_client, admin_client)
+    _settle_via_service(comp_id)
     resp = _player_points_me(admin_client, player_tokens[0])
     assert resp.status_code == 200, resp.text
     data = resp.json()
@@ -362,7 +403,8 @@ def test_points_me_unauthenticated_returns_401(client):
 
 
 def test_leaderboard_ordered_by_total_desc(admin_client):
-    _, _, _ = _run_individual_competition(admin_client, admin_client)
+    comp_id, _, _ = _run_individual_competition(admin_client, admin_client)
+    _settle_via_service(comp_id)
     resp = admin_client.get("/api/points/leaderboard")
     assert resp.status_code == 200, resp.text
     rows = resp.json()
@@ -377,9 +419,10 @@ def test_leaderboard_ordered_by_total_desc(admin_client):
 
 
 def test_admin_grant_activity_points_increases_balance(admin_client):
-    _, player_ids, player_tokens = _run_individual_competition(
+    comp_id, player_ids, player_tokens = _run_individual_competition(
         admin_client, admin_client
     )
+    _settle_via_service(comp_id)
     rank1 = player_ids[0]
     resp = admin_client.post(
         "/api/admin/points",

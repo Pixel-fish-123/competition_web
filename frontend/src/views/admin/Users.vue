@@ -31,6 +31,7 @@
         <el-option label="封禁" value="banned" />
       </el-select>
       <el-button type="primary" @click="loadUsers">刷新</el-button>
+      <el-button type="success" @click="openCreate">创建用户</el-button>
     </div>
 
     <el-table :data="filteredUsers" v-loading="loading" border stripe>
@@ -69,12 +70,45 @@
         </template>
       </el-table-column>
       <el-table-column prop="created_at" label="注册时间" min-width="170" />
-      <el-table-column label="操作" width="120">
+      <el-table-column label="操作" width="200">
         <template #default="{ row }">
           <el-button size="small" @click="openReset(row)">重置密码</el-button>
+          <el-button
+            size="small"
+            type="danger"
+            :loading="deletingId === row.id"
+            @click="openDelete(row)"
+          >
+            删除
+          </el-button>
         </template>
       </el-table-column>
     </el-table>
+
+    <el-dialog v-model="createVisible" title="创建用户" width="460px">
+      <el-form label-width="80px">
+        <el-form-item label="用户名">
+          <el-input v-model="createForm.username" placeholder="3-20 个字符" />
+        </el-form-item>
+        <el-form-item label="邮箱">
+          <el-input v-model="createForm.email" placeholder="name@example.com" />
+        </el-form-item>
+        <el-form-item label="密码">
+          <el-input v-model="createForm.password" type="password" show-password placeholder="至少 6 位" />
+        </el-form-item>
+        <el-form-item label="角色">
+          <el-select v-model="createForm.role" placeholder="选择角色" style="width: 100%">
+            <el-option label="管理员" value="admin" />
+            <el-option label="裁判" value="referee" />
+            <el-option label="选手" value="player" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="createVisible = false">取消</el-button>
+        <el-button type="primary" :loading="creating" @click="doCreate">确认创建</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="resetVisible" title="重置密码" width="420px">
       <el-form label-width="90px">
@@ -104,7 +138,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../../api/http'
 
 interface UserRow {
@@ -121,6 +155,11 @@ const loading = ref(false)
 const search = ref('')
 const roleFilter = ref('')
 const statusFilter = ref('')
+
+const createVisible = ref(false)
+const creating = ref(false)
+const createForm = ref({ username: '', email: '', password: '', role: '' })
+const deletingId = ref<number | null>(null)
 
 const ROLE_LABELS: Record<string, string> = {
   admin: '管理员',
@@ -238,6 +277,70 @@ async function doReset() {
     ElMessage.error(e?.response?.data?.detail || '重置密码失败')
   } finally {
     resetting.value = false
+  }
+}
+
+function openCreate() {
+  createForm.value = { username: '', email: '', password: '', role: 'player' }
+  createVisible.value = true
+}
+
+async function doCreate() {
+  const f = createForm.value
+  if (f.username.trim().length < 3) {
+    ElMessage.warning('用户名至少 3 个字符')
+    return
+  }
+  if (!/.+@.+\..+/.test(f.email.trim())) {
+    ElMessage.warning('邮箱格式不正确')
+    return
+  }
+  if (f.password.length < 6) {
+    ElMessage.warning('密码至少 6 位')
+    return
+  }
+  if (!f.role) {
+    ElMessage.warning('请选择角色')
+    return
+  }
+  creating.value = true
+  try {
+    await http.post('/admin/users', {
+      username: f.username.trim(),
+      email: f.email.trim(),
+      password: f.password,
+      role: f.role,
+    })
+    ElMessage.success('用户已创建')
+    createVisible.value = false
+    loadUsers()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '创建用户失败')
+  } finally {
+    creating.value = false
+  }
+}
+
+async function openDelete(row: UserRow) {
+  try {
+    await ElMessageBox.confirm(
+      `确定要删除用户「${row.username}」吗？该用户的所有报名/队伍/积分记录将被清理，且不可恢复。`,
+      '删除确认',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' }
+    )
+  } catch {
+    return
+  }
+  deletingId.value = row.id
+  try {
+    await http.delete(`/admin/users/${row.id}`)
+    ElMessage.success('用户已删除')
+    loadUsers()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '删除用户失败')
+    loadUsers()
+  } finally {
+    deletingId.value = null
   }
 }
 

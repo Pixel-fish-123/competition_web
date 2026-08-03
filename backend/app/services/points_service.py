@@ -1,7 +1,10 @@
-"""积分服务（todo 17）：比赛自动结算 + 用户余额 + 全局榜聚合。
+"""积分服务：比赛结算（仅手动/测试调用）+ 用户余额 + 全局榜聚合。
 
 比赛结算（``settle_competition_points``）设计：
 
+- 积分改为 admin 纯手动发放（用户确认 ①A）：competitions 的 finished
+  流转已移除自动结算调用；本函数保留供手动/测试直接调用，不再被任何
+  API 端点自动触发。
 - 幂等：同一比赛已存在 ``kind == "competition"`` 的流水则直接返回 []，
   绝不重复入账（流水只能由系统产生，见 plan.md Must NOT）。
 - 结算依据：与 match_service 完全一致的「确定性重建引擎 + 回放已完结对局
@@ -66,9 +69,12 @@ def settle_competition_points(
 ) -> list[PointTransaction]:
     """按 points_rule 结算比赛积分；幂等。
 
+    .. note::
+        不再自动调用（competitions finished 流转已移除自动结算），保留供
+        手动/测试调用。
+
     - 已存在该比赛的 competition 流水 -> 直接返回 []（不重复结算）。
-    - 存在未完成对局 -> raise ValueError("存在未完成的对局，无法结算")
-      （competitions API 的 finished 流转本身也会先拦 400）。
+    - 存在未完成对局 -> raise ValueError("存在未完成的对局，无法结算")。
     - 否则：重建引擎 -> standings -> 按名次应用 points_rule -> 为每个参赛
       单位创建流水（队伍 = 每位成员各全额）。提交后写审计日志。
     """

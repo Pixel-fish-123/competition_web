@@ -31,10 +31,18 @@
 
     <div v-else-if="state" class="match-play__body">
       <div class="match-play__board">
-        <TriangleBoard
+        <component
+          :is="boardComp"
+          v-if="boardComp"
           :state="state"
           :selectable="isRefereeOrAdmin && !state.game_over"
           @select="onSelectCell"
+        />
+        <el-alert
+          v-else
+          type="warning"
+          title="该玩法暂未支持前端组件"
+          :closable="false"
         />
       </div>
 
@@ -50,8 +58,9 @@
           </el-radio-group>
         </div>
 
-        <TriangleControls
-          v-if="isRefereeOrAdmin"
+        <component
+          :is="controlsComp"
+          v-if="isRefereeOrAdmin && controlsComp"
           :selected-cell="selectedCell"
           :game-over="state.game_over"
           @occupy="onOccupy"
@@ -83,6 +92,13 @@ import http from '../api/http'
 import { useAuthStore } from '../stores/auth'
 import { TriangleBoard, TriangleControls } from '../plugins/triangle-occupy'
 import type { TriangleCell, TriangleState } from '../plugins/triangle-occupy/TriangleBoard.vue'
+import type { Component } from 'vue'
+
+// 玩法插件组件映射表（todo 6）：按 gameplay_plugin 名解析对局页的棋盘/操作组件。
+// 保留静态 import（单玩法映射表足够，不引入动态 import）。
+const PLUGIN_COMPONENTS: Record<string, { board: Component; controls: Component | null }> = {
+  triangle_occupy: { board: TriangleBoard, controls: TriangleControls },
+}
 
 interface MatchInfo {
   id: number
@@ -96,6 +112,7 @@ interface MatchInfo {
   result: Record<string, unknown> | null
   result_type: string | null
   referee_id: number | null
+  gameplay_plugin: string | null
 }
 
 // GET /api/matches/{id} 返回嵌套的 MatchDetailOut = {match, session}
@@ -125,6 +142,12 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let unmounted = false
 
 const isRefereeOrAdmin = computed(() => auth.isRefereeOrAdmin)
+
+// todo 6：按 gameplay_plugin 名解析玩法组件；未知插件名时 boardComp 为 null，
+// 模板渲染降级提示而非白屏。
+const pluginComp = computed(() => PLUGIN_COMPONENTS[match.value?.gameplay_plugin ?? ''] ?? null)
+const boardComp = computed(() => pluginComp.value?.board ?? null)
+const controlsComp = computed(() => pluginComp.value?.controls ?? null)
 
 const matchStatusType = computed(() => {
   switch (match.value?.status) {

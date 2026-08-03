@@ -12,6 +12,8 @@ from datetime import datetime
 
 from app.db import SessionLocal
 from app.models.competition import Competition
+from app.models.match import GameSession, Match
+from app.models.point import PointTransaction
 from app.models.registration import Registration
 from app.models.user import User
 
@@ -315,13 +317,94 @@ def test_delete_draft_competition(admin_client):
     assert admin_client.get("/api/competitions").json() == []
 
 
-def test_delete_finished_competition_returns_400(admin_client):
+def test_delete_finished_competition_returns_200_and_cascades(admin_client):
     comp_id = _create_ok(admin_client)
     for status in ("registration", "ongoing", "finished"):
-        _transition(admin_client, comp_id, status)
+        assert _transition(admin_client, comp_id, status).status_code == 200
+
+    # Seed business data that must be cascade-cleaned: a Match, its
+    # GameSession, a PointTransaction and a Registration.
+    with SessionLocal() as db:
+        match = Match(
+            competition_id=comp_id,
+            round_id=1,
+            engine_match_id=1,
+            status="finished",
+        )
+        db.add(match)
+        db.flush()
+        db.add(
+            GameSession(
+                match_id=match.id,
+                plugin_name="triangle_occupy",
+                config={},
+            )
+        )
+        db.add(
+            PointTransaction(
+                user_id=1,
+                amount=10,
+                kind="competition",
+                ref_competition_id=comp_id,
+                reason="比赛名次·第1名",
+            )
+        )
+        db.add(
+            Registration(
+                competition_id=comp_id,
+                user_id=1,
+                participant_type="individual",
+                status="approved",
+            )
+        )
+        db.commit()
+
+    resp = admin_client.delete(f"/api/competitions/{comp_id}")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"ok": True}
+
+    # Cascade cleanup verified: no orphaned business rows remain.
+    with SessionLocal() as db:
+        assert db.get(Competition, comp_id) is None
+        assert (
+            db.query(Match).filter(Match.competition_id == comp_id).count() == 0
+        )
+        assert (
+            db.query(GameSession)
+            .join(Match, GameSession.match_id == Match.id)
+            .filter(Match.competition_id == comp_id)
+            .count()
+            == 0
+        )
+        assert (
+            db.query(PointTransaction)
+            .filter(PointTransaction.ref_competition_id == comp_id)
+            .count()
+            == 0
+        )
+        assert (
+            db.query(Registration)
+            .filter(Registration.competition_id == comp_id)
+            .count()
+            == 0
+        )
+
+
+def test_delete_ongoing_competition_returns_400(admin_client):
+    comp_id = _create_ok(admin_client)
+    assert _transition(admin_client, comp_id, "registration").status_code == 200
+    assert _transition(admin_client, comp_id, "ongoing").status_code == 200
     resp = admin_client.delete(f"/api/competitions/{comp_id}")
     assert resp.status_code == 400
-    assert resp.json()["detail"] == "比赛已开始或已结束，无法删除"
+    assert resp.json()["detail"] == "进行中的比赛无法删除"
+
+
+def test_player_cannot_delete_competition(client):
+    _register(client, "player_a", "pa@example.com")
+    comp_id = _seed_competition("选手删除", status="finished")
+    resp = client.delete(f"/api/competitions/{comp_id}")
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "权限不足"
 
 
 def test_delete_draft_with_registrations_removes_them(admin_client):

@@ -23,12 +23,6 @@
         <el-form-item label="分值">
           <el-input-number v-model="grant.amount" :min="1" :step="1" />
         </el-form-item>
-        <el-form-item label="类型">
-          <el-select v-model="grant.kind" style="width: 120px">
-            <el-option label="活动" value="activity" />
-            <el-option label="手动" value="manual" />
-          </el-select>
-        </el-form-item>
         <el-form-item label="原因">
           <el-input v-model="grant.reason" placeholder="发放原因" style="width: 200px" />
         </el-form-item>
@@ -49,8 +43,6 @@
         <el-table-column type="index" label="#" width="60" />
         <el-table-column prop="username" label="用户名" min-width="140" />
         <el-table-column prop="total" label="总分" width="100" />
-        <el-table-column prop="competition_sum" label="比赛分" width="100" />
-        <el-table-column prop="activity_sum" label="活动分" width="100" />
       </el-table>
     </el-card>
   </div>
@@ -69,8 +61,6 @@ interface LeaderboardRow {
   user_id: number
   username: string
   total: number
-  competition_sum: number
-  activity_sum: number
 }
 
 const users = ref<UserRow[]>([])
@@ -81,7 +71,7 @@ const granting = ref(false)
 const grant = reactive({
   user_id: undefined as number | undefined,
   amount: 1,
-  kind: 'activity',
+  kind: 'manual',
   reason: '',
 })
 

@@ -203,7 +203,7 @@ function nextTransitions(s: string) {
   return TRANSITIONS[s] || []
 }
 function deletable(s: string) {
-  return s === 'draft' || s === 'cancelled'
+  return s === 'draft' || s === 'cancelled' || s === 'finished'
 }
 
 async function loadCompetitions() {

@@ -17,6 +17,8 @@ from fastapi.testclient import TestClient
 
 from app.db import Base, SessionLocal, engine
 from app.main import app
+from app.models.competition import Competition
+from app.models.match import Match
 from app.models.user import User
 from app.plugins.triangle_occupy import plugin as plugin_mod
 from app.plugins.triangle_occupy.plugin import TriangleOccupyPlugin
@@ -277,16 +279,50 @@ def users() -> dict:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     with TestClient(app):
-        yield {
+        users_dict = {
             "admin": _role_client("to_admin", "admin"),
             "referee": _role_client("to_referee", "referee"),
             "player": _role_client("to_player", "player"),
         }
+        with SessionLocal() as db:
+            admin_id = db.query(User).filter(User.username == "to_admin").one().id
+            referee_id = db.query(User).filter(User.username == "to_referee").one().id
+        # todo 7：玩法路由按比赛级 referee_ids 校验 —— HTTP 测试需一张真实
+        # 比赛 + 对局，且把 referee 放进 referee_ids。
+        users_dict["match_id"] = _seed_match(admin_id, [referee_id])
+        yield users_dict
+
+
+def _seed_match(admin_id: int, referee_ids: list[int]) -> int:
+    """Seed a Competition + in_progress Match so the per-competition referee
+    check (todo 7) passes for referee actions in the HTTP tests."""
+    with SessionLocal() as db:
+        comp = Competition(
+            name="HTTP 路由测试比赛",
+            status="ongoing",
+            created_by=admin_id,
+            referee_ids=referee_ids,
+            gameplay_plugin="triangle_occupy",
+        )
+        db.add(comp)
+        db.flush()
+        match = Match(
+            competition_id=comp.id,
+            round_id=1,
+            participant_a=101,
+            participant_b=102,
+            engine_match_id=1,
+            status="in_progress",
+        )
+        db.add(match)
+        db.commit()
+        return match.id
 
 
 def _http_create(users: dict, config: dict | None = None) -> int:
     resp = users["admin"].post(
-        f"{PREFIX}/session", json={"match_id": 1, "config": config or _config()}
+        f"{PREFIX}/session",
+        json={"match_id": users["match_id"], "config": config or _config()},
     )
     assert resp.status_code == 200
     return resp.json()["session_id"]

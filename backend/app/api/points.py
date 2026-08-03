@@ -5,7 +5,8 @@
 - GET  /api/points/leaderboard   任意登录用户：按用户聚合的全局榜（?kind= 过滤）
 - POST /api/admin/points         仅 admin：发放活动/手动积分（写审计日志）
 
-流水只能由系统产生（比赛结算自动 / 管理员发放），无直接改库端点
+流水只能由管理员手动发放产生（比赛结束不再自动结算；competition 类仅
+由保留的 settle_competition_points 供手动/测试调用），无直接改库端点
 （plan.md todo 17 Must NOT）。
 """
 
@@ -57,7 +58,7 @@ def leaderboard(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """全局榜：按用户聚合，total 降序；?kind=competition|activity 过滤类别。"""
+    """全局榜：按用户聚合，total 降序（主列）；?kind= 过滤保留作向后兼容。"""
     return points_service.get_leaderboard(db, kind=kind)
 
 

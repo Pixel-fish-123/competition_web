@@ -7,12 +7,6 @@
       </el-button>
     </div>
 
-    <el-tabs v-model="activeTab" @tab-change="loadLeaderboard">
-      <el-tab-pane label="全局积分榜" name="all" />
-      <el-tab-pane label="比赛积分" name="competition" />
-      <el-tab-pane label="活动积分" name="activity" />
-    </el-tabs>
-
     <el-table :data="leaderboard" v-loading="loading" border stripe>
       <el-table-column label="排名" width="80">
         <template #default="{ $index }">
@@ -23,8 +17,6 @@
       </el-table-column>
       <el-table-column prop="username" label="用户名" min-width="160" />
       <el-table-column prop="total" label="总分" width="110" />
-      <el-table-column prop="competition_sum" label="比赛分" width="110" />
-      <el-table-column prop="activity_sum" label="活动分" width="110" />
     </el-table>
 
     <el-empty
@@ -44,12 +36,9 @@ interface LeaderboardRow {
   user_id: number
   username: string
   total: number
-  competition_sum: number
-  activity_sum: number
 }
 
 const router = useRouter()
-const activeTab = ref('all')
 const leaderboard = ref<LeaderboardRow[]>([])
 const loading = ref(false)
 
@@ -67,10 +56,8 @@ function goCompetitions() {
 async function loadLeaderboard() {
   loading.value = true
   try {
-    const params: Record<string, string> = {}
-    if (activeTab.value === 'competition') params.kind = 'competition'
-    if (activeTab.value === 'activity') params.kind = 'activity'
-    const { data } = await http.get<LeaderboardRow[]>('/points/leaderboard', { params })
+    // 积分已合并为单一 total（admin 手动发放），无 kind 过滤。
+    const { data } = await http.get<LeaderboardRow[]>('/points/leaderboard')
     leaderboard.value = data
   } catch {
     leaderboard.value = []

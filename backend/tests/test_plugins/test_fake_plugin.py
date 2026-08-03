@@ -12,6 +12,8 @@ from fastapi.testclient import TestClient
 
 from app.db import Base, SessionLocal, engine
 from app.main import app
+from app.models.competition import Competition
+from app.models.match import Match
 from app.models.user import User
 from app.plugins.registry import registry
 from tests.test_plugins.fixtures.fake_plugin.plugin import FakePlugin
@@ -53,16 +55,50 @@ def users() -> dict:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     with TestClient(app):
-        yield {
+        users_dict = {
             "admin": _role_client("admin_user", "admin"),
             "referee": _role_client("referee_user", "referee"),
             "player": _role_client("player1", "player"),
         }
+        with SessionLocal() as db:
+            admin_id = db.query(User).filter(User.username == "admin_user").one().id
+            referee_id = db.query(User).filter(User.username == "referee_user").one().id
+        # todo 7：玩法路由按比赛级 referee_ids 校验 —— HTTP 测试需一张真实
+        # 比赛 + 对局，且把 referee 放进 referee_ids。
+        users_dict["match_id"] = _seed_match(admin_id, [referee_id])
+        yield users_dict
 
 
-def _create_session(users: dict, *, match_id: int = 1, config: dict | None = None) -> int:
+def _seed_match(admin_id: int, referee_ids: list[int]) -> int:
+    """Seed a Competition + in_progress Match so the per-competition referee
+    check (todo 7) passes for referee actions in the HTTP tests."""
+    with SessionLocal() as db:
+        comp = Competition(
+            name="fake 路由测试比赛",
+            status="ongoing",
+            created_by=admin_id,
+            referee_ids=referee_ids,
+            gameplay_plugin="fake",
+        )
+        db.add(comp)
+        db.flush()
+        match = Match(
+            competition_id=comp.id,
+            round_id=1,
+            participant_a=1,
+            participant_b=2,
+            engine_match_id=1,
+            status="in_progress",
+        )
+        db.add(match)
+        db.commit()
+        return match.id
+
+
+def _create_session(users: dict, *, match_id: int | None = None, config: dict | None = None) -> int:
+    mid = users["match_id"] if match_id is None else match_id
     resp = users["admin"].post(
-        f"{FAKE_PREFIX}/session", json={"match_id": match_id, "config": config or {}}
+        f"{FAKE_PREFIX}/session", json={"match_id": mid, "config": config or {}}
     )
     assert resp.status_code == 200
     return resp.json()["session_id"]
@@ -81,7 +117,7 @@ def test_happy_chain_admin_create_referee_action_admin_end(users):
     assert resp.status_code == 200
     body = resp.json()
     assert body["session_id"] == sid
-    assert body["state"]["match_id"] == 1
+    assert body["state"]["match_id"] == users["match_id"]
 
     # referee 提交操作（选手 2 获胜）
     resp = users["referee"].post(

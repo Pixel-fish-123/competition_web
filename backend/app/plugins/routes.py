@@ -7,8 +7,10 @@
 - POST /session/{id}/action       提交选手/裁判操作（admin/referee）
 - POST /session/{id}/end          结束对局（admin/referee）
 
-权限（用户 2026-08-02 最终确认）：对局中仅 referee/admin 可操作棋盘
-（创建会话/提交操作/结束对局），选手只读（仅可查询会话状态）。
+权限（用户最终确认）：对局中仅 referee/admin 可操作棋盘
+（创建会话/提交操作/结束对局），选手只读（仅可查询会话状态）；且 referee
+必须在该比赛 referee_ids 内（_require_competition_referee，todo 7 ④A），
+admin 始终放行。
 
 会话存储：GameSession DB 桥已实现（_load_db_session 回退装载 +
 _persist_session 回写），_sessions 仅作进程内缓存加速。
@@ -27,7 +29,8 @@ from pydantic import BaseModel
 from app.core.rbac import get_current_user, require_referee
 from app.core.ws_manager import manager
 from app.db import SessionLocal
-from app.models.match import GameSession
+from app.models.competition import Competition
+from app.models.match import GameSession, Match
 from app.models.user import User
 from app.plugins.base import GameplayPlugin
 from app.plugins.registry import registry
@@ -111,6 +114,28 @@ def _get_session(session_id: int) -> dict:
     return session
 
 
+def _require_competition_referee(staff: User, match_id: int) -> None:
+    """Per-competition referee check: staff must be in competition.referee_ids or be admin.
+
+    todo 7（④A 一致性）：全局 referee 角色不能操作任意比赛的玩法会话 ——
+    每个 require_referee 端点按 match_id 定位比赛，校验 staff 在该比赛的
+    referee_ids 内；admin 始终放行。语义与 match_service._require_assigned_referee
+    一致，但 routes 层无 service 依赖（避免 plugins -> services 反向依赖），
+    直接查 DB。
+    """
+    if staff.role == "admin":
+        return
+    with SessionLocal() as db:
+        match = db.get(Match, match_id)
+        if match is None:
+            raise HTTPException(status_code=404, detail="对局不存在")
+        competition = db.get(Competition, match.competition_id)
+        if competition is None:
+            raise HTTPException(status_code=404, detail="比赛不存在")
+        if staff.id not in (competition.referee_ids or []):
+            raise HTTPException(status_code=403, detail="非本场比赛裁判")
+
+
 def _persist_session(session: dict, state: dict, ended: bool = False) -> None:
     """DB 持久化会话操作后回写 state_json（尽力而为，失败不影响玩法操作）。
 
@@ -142,7 +167,8 @@ def _build_plugin_router(plugin: GameplayPlugin) -> APIRouter:
         payload: SessionCreate,
         staff: User = Depends(require_referee),
     ):
-        """创建对局会话（仅 admin/referee）。"""
+        """创建对局会话（仅 admin/referee，且 referee 须在本场比赛裁判组）。"""
+        _require_competition_referee(staff, payload.match_id)
         try:
             state = plugin.create_session(payload.match_id, payload.config)
         except ValueError as e:
@@ -174,7 +200,8 @@ def _build_plugin_router(plugin: GameplayPlugin) -> APIRouter:
         payload: ActionPayload,
         staff: User = Depends(require_referee),
     ):
-        """提交选手/裁判操作（仅 admin/referee）。先 validate 后 submit。
+        """提交选手/裁判操作（仅 admin/referee，且 referee 须在本场裁判组）。
+        先 validate 后 submit。
 
         ``participant_id`` = 被操作的参赛单位 id（裁判替该方操作；前端
         MatchPlay 按替操作方推导 participant_a/b）。sides 校验即检查该参赛
@@ -182,6 +209,7 @@ def _build_plugin_router(plugin: GameplayPlugin) -> APIRouter:
         强制，插件层不感知身份。
         """
         session = _get_session(session_id)
+        _require_competition_referee(staff, session["match_id"])
         try:
             valid = plugin.validate_result(
                 session_id, session["state"], payload.participant_id, payload.payload
@@ -211,12 +239,14 @@ def _build_plugin_router(plugin: GameplayPlugin) -> APIRouter:
         session_id: int,
         staff: User = Depends(require_referee),
     ):
-        """结束对局（仅 admin/referee）；返回最终结果并从存储移除。
+        """结束对局（仅 admin/referee，且 referee 须在本场裁判组）；返回最终
+        结果并从存储移除。
 
         participant_id 语义见 submit_action：被操作的参赛单位 id（裁判替该方
         操作）；操作者身份由本路由层 require_referee 强制，插件不感知身份。
         """
         session = _get_session(session_id)
+        _require_competition_referee(staff, session["match_id"])
         # 关键：必须在 end_session 之前捕获活控制器 —— end_session 内部会
         # 调用 controller.end_game()（置 game_over=True）然后 _drop_controller
         # 丢弃活实例；若事后才取控制器，_get_controller 会从陈旧的

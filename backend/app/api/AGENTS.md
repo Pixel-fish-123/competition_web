@@ -1,0 +1,47 @@
+# API 层（backend/app/api/）
+
+## OVERVIEW
+FastAPI 路由层：11 个模块，全部端点在此声明，权限/审计/限流在此落地；业务逻辑委托给 services/，本层只做参数校验、依赖注入与序列化。
+
+## ROUTE MAP
+| 模块 | 端点 | 权限 | 要点 |
+|------|------|------|------|
+| auth | POST /api/auth/register, /login | 公开（10/min） | 注册即自动登录；login 先查 lockout（423）再验密码；失败记 `login_failed` 审计 |
+| auth | POST /api/auth/logout | 公开 | 删 cookie |
+| auth | GET/PATCH /api/auth/me | get_current_user | PATCH 仅改昵称（None=不改），写 `update_profile` 审计 |
+| teams | POST /api/teams | get_current_user | 建队者即队长；已入队者 400；队名唯一（IntegrityError→400） |
+| teams | POST /api/teams/{id}/members | 队长 | 拉人按 user_id 优先、username 兜底；满 3 人 400 |
+| teams | DELETE /api/teams/{id}/members/{uid} | 队长 | 队长不能退队（400） |
+| teams | DELETE /api/teams/{id} | 队长 | 先删成员行再删队 |
+| teams | GET /api/teams/my, /api/teams/{id} | get_current_user | `/my` 必须先于 `/{team_id}` 声明 |
+| registrations | POST/DELETE /api/competitions/{cid}/register | get_current_user | 报名置 pending；容量按 pending+approved 计；队伍报名存队长 user_id |
+| registrations | GET /api/competitions/{cid}/registrations, /api/my/registrations | get_current_user | 列表解析参赛者名称 |
+| registrations | POST /api/admin/competitions/{cid}/registrations/{rid}/approve\|reject | require_admin | 仅 pending 可处理；写 `registration_approve/reject` 审计 |
+| competitions | GET /api/competitions, /{id} | 公开（无鉴权） | 列表 id 降序 |
+| competitions | POST/PATCH/DELETE /api/competitions | require_admin | referee_ids 全量校验（须为 referee 角色）；DELETE 仅 draft/cancelled |
+| competitions | POST /api/competitions/{id}/status | require_admin | 状态机 TRANSITIONS 表；进 ongoing 自动排表、进 finished 自动结算积分 |
+| matches | GET /api/competitions/{cid}/matches, /api/matches/{id} | get_current_user | 列表按 round_id,id 排序 |
+| matches | POST /api/matches/{id}/start, /result | require_referee + 本场 referee_ids | 轮空自动完结；写 `match_start/match_result` 审计 |
+| points | GET /api/points/me, /leaderboard | get_current_user | 流水最新在前；leaderboard 按 kind 过滤 |
+| points | POST /api/admin/points | require_admin | 发放活动/手动积分；写 `points_grant` 审计 |
+| rankings | GET /api/rankings/competition/{id}, /global | get_current_user | 场次榜=引擎 standings 重建+回放；global 复用 points leaderboard |
+| admin_users | GET /api/admin/users, PATCH /api/admin/users/{id} | require_admin（router 级） | 角色/状态/密码；最后管理员保护；改状态时 reset_lockout |
+| admin_traffic | GET /api/admin/traffic/{summary,failed-logins,locked,logs} | require_admin（router 级） | 数据源=AuditLog 表 + lockout 实时态；logs 支持 action/username 过滤+分页 |
+| ws | WS /ws/matches/{match_id} | Cookie 鉴权 + 订阅白名单 | 鉴权在此（非 ws_manager）；4401 未授权、1008 权限/频率超限 |
+| health | GET /api/health | 公开 | 返回 {"status":"ok"} |
+
+## CONVENTIONS
+- 权限三档：`get_current_user`（登录即可）→ `require_referee`（=admin+referee）→ `require_admin`。裁判端点还要比赛级校验（`staff.id in competition.referee_ids`，在 match_service 内）。
+- 审计：状态变更端点统一 `log_audit(db, actor_id, kind, ip, user_agent, detail)`，kind 用中文语义（`registration_approve`/`match_start`/`points_grant`/`admin_update_user`）；`_request_meta(request)` 取 (ip, user_agent)。
+- 限流：`admin_*` 路由 60/min、auth 10/min（显式 `@limiter.limit`），其余走默认 100/min。
+- 路径参数一律 `int` 化（`{team_id:int}` 语义）；`/api/teams/my` 必须先于 `/api/teams/{team_id}` 声明，否则 "my" 被 int 参数吞掉。
+- 序列化统一走 `_xxx_out(db, obj)` 助手（`_team_out`/`_registration_out`/`_match_out`），批量 JOIN 避免 N+1。
+- 公开端点（competitions 列表/详情、health）不挂鉴权依赖。
+
+## TRAPS
+- **matches.record_result 返回前必须走 `_match_out`**：直接 `return result`（ORM 对象）会漏 `participant_a_name/b_name` 字段。start/result 都返回序列化结果。
+- 报名容量按 `status in ("pending","approved")` 计，重复报名检查先于容量检查（已报名者即使满员也报"已报名"而非"已满"）。
+- 队伍报名在 Registration 存 `user_id=队长`，成员无独立行；`_existing_registration` 靠 user_id 匹配，队伍成员报名会被误判为"已报名"。
+- 状态机 `finished` 是终态：进 finished 前守卫未完成对局（400），再调 `points_service.settle_competition_points`。
+- ws.py 的 `_load_initial_state` 同时读 DB GameSession 和 `plugins/routes._sessions` 内存会话（临时反模式，见根 ANTI-PATTERNS）。
+- admin_users 最后管理员保护：仅当 `user.id==current_user.id` 且降级时检查 admin 总数==1。

@@ -14,6 +14,7 @@ class RegisterRequest(BaseModel):
     username: str = Field(min_length=3, max_length=20)
     email: str
     password: str = Field(min_length=6, max_length=64)
+    nickname: str | None = Field(default=None, min_length=1, max_length=20)
 
     @field_validator("email")
     @classmethod
@@ -41,12 +42,22 @@ class UserPatchRequest(BaseModel):
     password: str | None = Field(default=None, min_length=6, max_length=64)
 
 
+class UserMePatchRequest(BaseModel):
+    """普通用户修改自己的资料（目前仅昵称）。
+
+    ``None`` 表示不修改该字段；空串会被 min_length=1 拒绝（422）。
+    """
+
+    nickname: str | None = Field(default=None, min_length=1, max_length=20)
+
+
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     username: str
     email: str
+    nickname: str | None
     role: str
     status: str
     created_at: datetime

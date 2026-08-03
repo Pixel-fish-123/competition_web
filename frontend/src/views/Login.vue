@@ -53,6 +53,12 @@
                 autocomplete="username"
               />
             </el-form-item>
+            <el-form-item label="昵称（选填）" prop="nickname">
+              <el-input
+                v-model="registerForm.nickname"
+                placeholder="参赛展示用昵称"
+              />
+            </el-form-item>
             <el-form-item label="邮箱" prop="email">
               <el-input
                 v-model="registerForm.email"
@@ -117,6 +123,7 @@ const loginForm = reactive({
 
 const registerForm = reactive({
   username: '',
+  nickname: '',
   email: '',
   password: '',
   confirm: '',
@@ -207,6 +214,7 @@ async function handleRegister() {
       registerForm.username,
       registerForm.email,
       registerForm.password,
+      registerForm.nickname.trim() || undefined,
     )
     ElMessage.success('注册成功，已自动登录')
     redirectAfterAuth()

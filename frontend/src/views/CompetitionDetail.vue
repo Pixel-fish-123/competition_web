@@ -91,12 +91,38 @@
           </el-table-column>
           <el-table-column label="参赛者" min-width="160">
             <template #default="{ row }">
-              {{ row.team_id ? `队伍#${row.team_id}` : `选手#${row.user_id}` }}
+              {{ row.participant_name || (row.team_id ? `队伍#${row.team_id}` : `选手#${row.user_id}`) }}
             </template>
           </el-table-column>
           <el-table-column prop="status" label="状态" width="110">
             <template #default="{ row }">
               <el-tag size="small">{{ regStatusLabel(row.status) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column
+            v-if="auth.user?.role === 'admin'"
+            label="操作"
+            width="140"
+          >
+            <template #default="{ row }">
+              <template v-if="row.status === 'pending'">
+                <el-button
+                  type="success"
+                  size="small"
+                  :loading="reviewingId === row.id"
+                  @click="reviewRegistration(row.id, 'approve')"
+                >
+                  通过
+                </el-button>
+                <el-button
+                  type="danger"
+                  size="small"
+                  :loading="reviewingId === row.id"
+                  @click="reviewRegistration(row.id, 'reject')"
+                >
+                  拒绝
+                </el-button>
+              </template>
             </template>
           </el-table-column>
         </el-table>
@@ -119,9 +145,9 @@
               @click="goMatch(m)"
             >
               <div class="match-card__row">
-                <span class="match-card__name">{{ participantName(m.participant_a) }}</span>
+                <span class="match-card__name">{{ participantName(m, 'a') }}</span>
                 <span class="match-card__vs">VS</span>
-                <span class="match-card__name">{{ participantName(m.participant_b) }}</span>
+                <span class="match-card__name">{{ participantName(m, 'b') }}</span>
               </div>
               <div class="match-card__foot">
                 <el-tag size="small" :type="matchStatusType(m.status)">
@@ -179,6 +205,7 @@ interface Registration {
   user_id: number | null
   team_id: number | null
   participant_type: string
+  participant_name?: string | null
   status: string
 }
 
@@ -187,6 +214,8 @@ interface MatchInfo {
   round_id: number
   participant_a: number | null
   participant_b: number | null
+  participant_a_name?: string | null
+  participant_b_name?: string | null
   status: string
   result: Record<string, any> | null
 }
@@ -224,6 +253,7 @@ const rankLoading = ref(false)
 const myTeam = ref<TeamInfo | null>(null)
 const registering = ref(false)
 const withdrawing = ref(false)
+const reviewingId = ref<number | null>(null)
 
 const registered = computed(() =>
   registrations.value.some((r) => r.user_id === auth.user?.id)
@@ -272,8 +302,9 @@ function gameplayLabel(g: string) {
   return g
 }
 function regStatusLabel(s: string) {
-  if (s === 'confirmed') return '已确认'
-  if (s === 'pending') return '待确认'
+  if (s === 'pending') return '待审核'
+  if (s === 'approved') return '已通过'
+  if (s === 'rejected') return '已拒绝'
   return s
 }
 function matchStatusLabel(s: string) {
@@ -309,7 +340,10 @@ const formatSummary = computed(() => {
   return `赛制：${f}`
 })
 
-function participantName(id: number | null) {
+function participantName(m: MatchInfo, side: 'a' | 'b') {
+  const explicit = side === 'a' ? m.participant_a_name : m.participant_b_name
+  if (explicit) return explicit
+  const id = side === 'a' ? m.participant_a : m.participant_b
   if (id === null) return '待定'
   const reg = registrations.value.find(
     (r) => r.team_id === id || r.user_id === id
@@ -322,7 +356,9 @@ function resultText(m: MatchInfo) {
   if (!m.result) return ''
   const winner = m.result.winner
   if (winner === null || winner === undefined) return '平局'
-  return `胜者：${participantName(Number(winner))}`
+  const w = Number(winner)
+  const side = w === m.participant_a ? 'a' : w === m.participant_b ? 'b' : null
+  return `胜者：${side ? participantName(m, side) : `参赛者#${w}`}`
 }
 
 function goMatch(m: MatchInfo) {
@@ -422,6 +458,19 @@ async function onWithdraw() {
     ElMessage.error(e?.response?.data?.detail || '撤销失败')
   } finally {
     withdrawing.value = false
+  }
+}
+
+async function reviewRegistration(rid: number, action: 'approve' | 'reject') {
+  reviewingId.value = rid
+  try {
+    await http.post(`/admin/competitions/${cid.value}/registrations/${rid}/${action}`)
+    ElMessage.success(action === 'approve' ? '已通过该报名' : '已拒绝该报名')
+    await loadRegistrations()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '操作失败')
+  } finally {
+    reviewingId.value = null
   }
 }
 

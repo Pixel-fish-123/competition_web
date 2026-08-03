@@ -1,19 +1,21 @@
-"""Registration endpoints: register / withdraw / list (todo 7).
+"""Registration endpoints: register / withdraw / list / admin approve-reject.
 
 Auth: ``get_current_user`` (app/core/rbac.py) resolves the user from the
-"token" cookie — every route here requires an authenticated, active account.
+"token" cookie — every route here requires an authenticated, active account;
+admin 审批端点单独加 ``require_admin`` 依赖。
 
-Registration lifecycle note: approval/rejection endpoints arrive with the
-admin flows (todo 8/19), so rows are created with status "pending" and stay
-pending for now. Capacity counting uses ``status in ("pending", "approved")``
-so a pending registration reserves a slot immediately.
+Registration lifecycle: rows are created with status "pending", then admin
+审批（approve/reject）推进为 "approved"/"rejected"。Capacity counting uses
+``status in ("pending", "approved")`` so a pending registration reserves a
+slot immediately.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.rbac import get_current_user
+from app.core.audit import log_audit
+from app.core.rbac import get_current_user, require_admin
 from app.db import get_db
 from app.models.competition import Competition
 from app.models.registration import Registration
@@ -26,11 +28,31 @@ router = APIRouter()
 WITHDRAWABLE_STATUSES = ("pending", "approved")
 
 
+def _request_meta(request: Request) -> tuple[str, str | None]:
+    """(ip, user_agent) 供审计日志使用。"""
+    ip = request.client.host if request.client else "unknown"
+    return ip, request.headers.get("user-agent")
+
+
 def _get_competition_or_404(db: Session, competition_id: int) -> Competition:
     competition = db.get(Competition, competition_id)
     if competition is None:
         raise HTTPException(status_code=404, detail="比赛不存在")
     return competition
+
+
+def _registration_out(db: Session, reg: Registration) -> RegistrationOut:
+    """序列化报名记录并解析参赛者名称（队伍=队名，个体=昵称或用户名）。"""
+    name: str | None = None
+    if reg.participant_type == "team" and reg.team_id is not None:
+        team = db.get(Team, reg.team_id)
+        name = team.name if team is not None else None
+    elif reg.user_id is not None:
+        user = db.get(User, reg.user_id)
+        name = (user.nickname or user.username) if user is not None else None
+    return RegistrationOut.model_validate(reg).model_copy(
+        update={"participant_name": name}
+    )
 
 
 def _approved_count(db: Session, competition_id: int) -> int:
@@ -116,7 +138,7 @@ def register(
     if _approved_count(db, competition_id) >= competition.max_participants:
         raise HTTPException(status_code=400, detail="报名已满")
 
-    registration.status = "pending"  # approval arrives with admin (todo 8/19)
+    registration.status = "pending"  # 待 admin 审批（approve/reject 端点见下）
     db.add(registration)
     try:
         db.commit()
@@ -125,7 +147,7 @@ def register(
         db.rollback()
         raise HTTPException(status_code=400, detail="已报名")
     db.refresh(registration)
-    return registration
+    return _registration_out(db, registration)
 
 
 @router.delete("/api/competitions/{competition_id}/register")
@@ -157,12 +179,13 @@ def list_registrations(
     user: User = Depends(get_current_user),
 ):
     _get_competition_or_404(db, competition_id)
-    return (
+    registrations = (
         db.query(Registration)
         .filter(Registration.competition_id == competition_id)
         .order_by(Registration.id)
         .all()
     )
+    return [_registration_out(db, r) for r in registrations]
 
 
 @router.get("/api/my/registrations", response_model=MyRegistrationOut)
@@ -176,4 +199,91 @@ def my_registrations(
         .order_by(Registration.id.desc())
         .all()
     )
-    return {"registrations": registrations}
+    return {"registrations": [_registration_out(db, r) for r in registrations]}
+
+
+def _get_registration_or_404(
+    db: Session, competition_id: int, registration_id: int
+) -> Registration:
+    """取指定比赛的报名记录（必须属于该比赛，否则 404）。"""
+    registration = (
+        db.query(Registration)
+        .filter(
+            Registration.id == registration_id,
+            Registration.competition_id == competition_id,
+        )
+        .first()
+    )
+    if registration is None:
+        raise HTTPException(status_code=404, detail="报名记录不存在")
+    return registration
+
+
+def _resolve_registration(
+    db: Session,
+    competition_id: int,
+    registration_id: int,
+    admin: User,
+    approve: bool,
+    request: Request,
+) -> RegistrationOut:
+    """admin 审批共用逻辑：置 approved/rejected 并写审计日志。"""
+    _get_competition_or_404(db, competition_id)
+    registration = _get_registration_or_404(db, competition_id, registration_id)
+    if registration.status != "pending":
+        raise HTTPException(status_code=400, detail="该报名已处理")
+
+    registration.status = "approved" if approve else "rejected"
+    if approve:
+        registration.approved_by = admin.id
+    db.commit()
+    db.refresh(registration)
+
+    ip, user_agent = _request_meta(request)
+    log_audit(
+        db,
+        admin.id,
+        "registration_approve" if approve else "registration_reject",
+        ip,
+        user_agent,
+        {
+            "competition_id": competition_id,
+            "registration_id": registration.id,
+            "participant_type": registration.participant_type,
+        },
+    )
+    return _registration_out(db, registration)
+
+
+@router.post(
+    "/api/admin/competitions/{competition_id}/registrations/{registration_id}/approve",
+    response_model=RegistrationOut,
+)
+def approve_registration(
+    competition_id: int,
+    registration_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Admin 审批通过报名（pending -> approved）。"""
+    return _resolve_registration(
+        db, competition_id, registration_id, admin, approve=True, request=request
+    )
+
+
+@router.post(
+    "/api/admin/competitions/{competition_id}/registrations/{registration_id}/reject",
+    response_model=RegistrationOut,
+)
+def reject_registration(
+    competition_id: int,
+    registration_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    """Admin 拒绝报名（pending -> rejected）。"""
+    return _resolve_registration(
+        db, competition_id, registration_id, admin, approve=False, request=request
+    )

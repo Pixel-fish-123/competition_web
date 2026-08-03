@@ -21,6 +21,8 @@ class RegistrationOut(BaseModel):
     user_id: int | None
     status: str
     created_at: datetime
+    # 参赛者显示名称（API 层手工填充：队伍=队名，个体=昵称或用户名）。
+    participant_name: str | None = None
 
 
 class MyRegistrationOut(BaseModel):

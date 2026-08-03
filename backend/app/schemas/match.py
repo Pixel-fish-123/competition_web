@@ -38,6 +38,10 @@ class MatchOut(BaseModel):
     referee_id: int | None
     scheduled_at: datetime | None
     created_at: datetime
+    # 参赛者显示名称（API 层手工填充，不依赖 from_attributes：
+    # 队伍=队名，个体=昵称或用户名）。
+    participant_a_name: str | None = None
+    participant_b_name: str | None = None
 
 
 class GameSessionOut(BaseModel):

@@ -289,3 +289,70 @@ def test_disband_removes_team_and_members(client):
     _as_user(client, b_token)
     resp = _create_team(client, "队伍B")
     assert resp.status_code == 200
+
+
+# ------------------------------------------------------ add member by username
+
+
+def _register_nick(client, username, email, nickname):
+    client.cookies.clear()
+    resp = client.post(
+        "/api/auth/register",
+        json={"username": username, "email": email, "password": PASSWORD, "nickname": nickname},
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()["id"], client.cookies.get("token")
+
+
+def test_add_member_by_username_success(client):
+    a_id, a_token = _register(client, "user_a", "a@example.com")
+    b_id, b_token = _register_nick(client, "user_b", "b@example.com", nickname="小B")
+
+    _as_user(client, a_token)
+    team_id = _create_team(client, "队伍A").json()["id"]
+
+    # 队长按 username 拉人，无需知道对方 user_id。
+    resp = client.post(f"/api/teams/{team_id}/members", json={"username": "user_b"})
+    assert resp.status_code == 200, resp.text
+    members = resp.json()["members"]
+    assert resp.json()["member_count"] == 2
+    b_member = next(m for m in members if m["user_id"] == b_id)
+    assert b_member["username"] == "user_b"
+    assert b_member["nickname"] == "小B"  # 成员列表带昵称展示
+
+
+def test_add_member_by_unknown_username_returns_404(client):
+    _, a_token = _register(client, "user_a", "a@example.com")
+
+    _as_user(client, a_token)
+    team_id = _create_team(client, "队伍A").json()["id"]
+
+    resp = client.post(f"/api/teams/{team_id}/members", json={"username": "ghost"})
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "用户不存在"
+
+
+def test_add_member_by_username_non_captain_returns_403(client):
+    a_id, a_token = _register(client, "user_a", "a@example.com")
+    b_id, b_token = _register(client, "user_b", "b@example.com")
+    c_id, c_token = _register(client, "user_c", "c@example.com")
+
+    _as_user(client, a_token)
+    team_id = _create_team(client, "队伍A").json()["id"]
+    assert client.post(f"/api/teams/{team_id}/members", json={"user_id": b_id}).status_code == 200
+
+    # 普通成员用 username 拉人 -> 403。
+    _as_user(client, b_token)
+    resp = client.post(f"/api/teams/{team_id}/members", json={"username": "user_c"})
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "只有队长可以添加成员"
+
+
+def test_add_member_neither_id_nor_username_returns_422(client):
+    _, a_token = _register(client, "user_a", "a@example.com")
+
+    _as_user(client, a_token)
+    team_id = _create_team(client, "队伍A").json()["id"]
+
+    resp = client.post(f"/api/teams/{team_id}/members", json={})
+    assert resp.status_code == 422

@@ -42,7 +42,7 @@ def competition_rankings(
     """
     competition = _get_competition_or_404(db, competition_id)
 
-    # 参赛单位 id -> 名称（个体=用户名，队伍=队名）。
+    # 参赛单位 id -> 名称（个体=昵称或用户名，队伍=队名）。
     regs = (
         db.query(Registration)
         .filter(
@@ -62,7 +62,9 @@ def competition_rankings(
             names[participant_id] = team_cache[reg.team_id]
         else:
             user = db.get(User, reg.user_id)
-            names[participant_id] = user.username if user is not None else None
+            names[participant_id] = (
+                (user.nickname or user.username) if user is not None else None
+            )
 
     standings = points_service.get_competition_standings(db, competition)
     return [

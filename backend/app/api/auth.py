@@ -15,10 +15,11 @@ from sqlalchemy.orm import Session
 from app.core.audit import log_audit
 from app.core.lockout import locked_until, record_failed_login, reset_lockout
 from app.core.ratelimit import limiter
+from app.core.rbac import get_current_user
 from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
 from app.db import get_db
 from app.models.user import User
-from app.schemas.user import LoginRequest, RegisterRequest, UserOut
+from app.schemas.user import LoginRequest, RegisterRequest, UserMePatchRequest, UserOut
 
 router = APIRouter()
 
@@ -55,6 +56,7 @@ def register(request: Request, payload: RegisterRequest, response: Response, db:
     user = User(
         username=payload.username,
         email=payload.email,
+        nickname=payload.nickname,
         password_hash=hash_password(payload.password),
         role="player",
     )
@@ -114,4 +116,28 @@ def me(request: Request, db: Session = Depends(get_db)):
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=401, detail="用户不存在")
+    return user
+
+
+@router.patch("/api/auth/me", response_model=UserOut)
+def update_me(
+    payload: UserMePatchRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """普通用户修改自己的资料（当前仅昵称；None=不修改）。"""
+    if payload.nickname is not None:
+        user.nickname = payload.nickname
+        db.commit()
+        db.refresh(user)
+    ip, user_agent = _request_meta(request)
+    log_audit(
+        db,
+        user.id,
+        "update_profile",
+        ip,
+        user_agent,
+        {"username": user.username, "nickname": user.nickname},
+    )
     return user

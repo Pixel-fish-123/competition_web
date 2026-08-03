@@ -25,6 +25,8 @@ class User(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    # 昵称（个人参赛者展示名，可空；旧库升级见 app/main.py 的 _ensure_schema_upgrades）。
+    nickname: Mapped[str | None] = mapped_column(String(50), nullable=True)
     password_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     role: Mapped[str] = mapped_column(String(20), default="player", nullable=False)
     status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)

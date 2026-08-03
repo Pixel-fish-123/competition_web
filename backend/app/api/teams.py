@@ -35,9 +35,13 @@ def _user_in_team(db: Session, user_id: int) -> TeamMember | None:
 
 
 def _team_out(db: Session, team: Team) -> dict:
-    """Serialize a Team plus its member rows (ordered by join time)."""
-    members = (
-        db.query(TeamMember)
+    """Serialize a Team plus its member rows (ordered by join time).
+
+    成员名称通过 TeamMember JOIN User 一次批量取出（避免 N+1）。
+    """
+    rows = (
+        db.query(TeamMember, User)
+        .join(User, User.id == TeamMember.user_id)
         .filter(TeamMember.team_id == team.id)
         .order_by(TeamMember.id)
         .all()
@@ -47,10 +51,16 @@ def _team_out(db: Session, team: Team) -> dict:
         "name": team.name,
         "captain_id": team.captain_id,
         "created_at": team.created_at,
-        "member_count": len(members),
+        "member_count": len(rows),
         "members": [
-            {"id": m.id, "user_id": m.user_id, "created_at": m.created_at}
-            for m in members
+            {
+                "id": m.id,
+                "user_id": m.user_id,
+                "username": u.username,
+                "nickname": u.nickname,
+                "created_at": m.created_at,
+            }
+            for m, u in rows
         ],
     }
 
@@ -91,12 +101,21 @@ def add_member(
         raise HTTPException(status_code=403, detail="只有队长可以添加成员")
     if _team_member_count(db, team_id) >= TEAM_MAX_MEMBERS:
         raise HTTPException(status_code=400, detail="队伍已满（最多3人）")
-    if db.get(User, payload.user_id) is None:
-        raise HTTPException(status_code=404, detail="用户不存在")
-    if _user_in_team(db, payload.user_id) is not None:
+
+    # 两种定位方式：user_id 与 username 都提供时以 user_id 优先。
+    if payload.user_id is not None:
+        target_user_id = payload.user_id
+        if db.get(User, payload.user_id) is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+    else:
+        target = db.query(User).filter(User.username == payload.username).first()
+        if target is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        target_user_id = target.id
+    if _user_in_team(db, target_user_id) is not None:
         raise HTTPException(status_code=400, detail="该用户已在其他队伍")
 
-    db.add(TeamMember(team_id=team.id, user_id=payload.user_id))
+    db.add(TeamMember(team_id=team.id, user_id=target_user_id))
     try:
         db.commit()
     except IntegrityError:

@@ -15,6 +15,8 @@ from app.core.rbac import get_current_user, require_referee
 from app.db import get_db
 from app.models.competition import Competition
 from app.models.match import GameSession, Match
+from app.models.registration import Registration
+from app.models.team import Team
 from app.models.user import User
 from app.schemas.match import (
     GameSessionOut,
@@ -47,6 +49,66 @@ def _get_match_or_404(db: Session, match_id: int) -> Match:
     return match
 
 
+def _resolve_participant_names(
+    db: Session,
+    competition_id: int,
+    participant_a: int | None,
+    participant_b: int | None,
+) -> tuple[str | None, str | None]:
+    """解析两名参赛者的显示名称（队伍=队名，个体=昵称或用户名）。
+
+    批量查询避免 N+1：Registration 一次 in_ 取出，Team/User 再各一次批量查。
+    参赛者 id 可能同时是某队的 team_id 或某个人的 user_id，按该报名记录的
+    participant_type 决定解析方式；找不到返回 None。
+    """
+    ids = [pid for pid in (participant_a, participant_b) if pid is not None]
+    names: dict[int, str | None] = {}
+    if ids:
+        regs = (
+            db.query(Registration)
+            .filter(
+                Registration.competition_id == competition_id,
+                Registration.status == "approved",
+                (Registration.team_id.in_(ids)) | (Registration.user_id.in_(ids)),
+            )
+            .all()
+        )
+        team_ids = [r.team_id for r in regs if r.team_id is not None]
+        user_ids = [r.user_id for r in regs if r.user_id is not None]
+        teams = (
+            {t.id: t.name for t in db.query(Team).filter(Team.id.in_(team_ids)).all()}
+            if team_ids
+            else {}
+        )
+        users = (
+            {
+                u.id: (u.nickname or u.username)
+                for u in db.query(User).filter(User.id.in_(user_ids)).all()
+            }
+            if user_ids
+            else {}
+        )
+        for pid in ids:
+            reg = next((r for r in regs if r.team_id == pid or r.user_id == pid), None)
+            if reg is None:
+                names[pid] = None
+            elif reg.participant_type == "team":
+                names[pid] = teams.get(pid)
+            else:
+                names[pid] = users.get(pid)
+    return names.get(participant_a), names.get(participant_b)
+
+
+def _match_out(db: Session, match: Match) -> MatchOut:
+    """序列化单局对局并填充参赛者显示名称。"""
+    a_name, b_name = _resolve_participant_names(
+        db, match.competition_id, match.participant_a, match.participant_b
+    )
+    return MatchOut.model_validate(match).model_copy(
+        update={"participant_a_name": a_name, "participant_b_name": b_name}
+    )
+
+
 @router.get(
     "/api/competitions/{competition_id}/matches", response_model=list[MatchOut]
 )
@@ -57,12 +119,13 @@ def list_matches(
 ):
     """赛程列表（任意登录用户），按轮次/创建顺序排列。"""
     _get_competition_or_404(db, competition_id)
-    return (
+    matches = (
         db.query(Match)
         .filter(Match.competition_id == competition_id)
         .order_by(Match.round_id, Match.id)
         .all()
     )
+    return [_match_out(db, m) for m in matches]
 
 
 @router.get("/api/matches/{match_id}", response_model=MatchDetailOut)
@@ -89,7 +152,7 @@ def get_match_detail(
             started_at=session.started_at,
             ended_at=session.ended_at,
         )
-    return MatchDetailOut(match=MatchOut.model_validate(match), session=session_out)
+    return MatchDetailOut(match=_match_out(db, match), session=session_out)
 
 
 @router.post("/api/matches/{match_id}/start")
@@ -147,4 +210,4 @@ def record_result(
             "is_draw": payload.is_draw,
         },
     )
-    return result
+    return _match_out(db, result)

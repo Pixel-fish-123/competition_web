@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
+from sqlalchemy import text
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -35,11 +36,28 @@ from app.plugins.registry import register_default_plugins
 from app.plugins.routes import mount_gameplay_routes
 
 
+def _ensure_schema_upgrades() -> None:
+    """轻量 schema 升级（无 alembic）：给旧库 users 表补 nickname 列（幂等）。
+
+    SQLite 的 ``create_all`` 不会为已存在的表补列；新库/测试库由
+    create_all 建表时已含该列，PRAGMA 检测到后直接跳过。PRAGMA table_info
+    返回行的 ``name`` 字段在下标 1。
+    """
+    with engine.connect() as conn:
+        rows = conn.execute(text("PRAGMA table_info(users)")).fetchall()
+        if not rows or any(row[1] == "nickname" for row in rows):
+            return
+        conn.execute(text("ALTER TABLE users ADD COLUMN nickname VARCHAR(50)"))
+        conn.commit()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # DB init strategy (documented): no alembic yet — create tables directly
     # on startup. app.models.user is imported above so the table is registered.
     Base.metadata.create_all(bind=engine)
+    # 旧库 schema 升级（create_all 只建新表，不补已存在表的列）。
+    _ensure_schema_upgrades()
     # 玩法插件（todo 12）：扫描注册 plugins/ 下的插件并自动挂载
     # /api/gameplay/<name>/* 路由（register_default_plugins 幂等）。
     register_default_plugins()

@@ -7,6 +7,8 @@
       </el-tag>
     </div>
 
+    <div v-if="match" class="match-play__players">{{ playersText }}</div>
+
     <el-alert
       v-if="!isRefereeOrAdmin"
       type="info"
@@ -77,6 +79,8 @@ interface MatchInfo {
   round_id: number
   participant_a: number | null
   participant_b: number | null
+  participant_a_name: string | null
+  participant_b_name: string | null
   status: string
   result: Record<string, unknown> | null
   result_type: string | null
@@ -120,6 +124,18 @@ const matchStatusText = computed(() => {
     default:
       return '未开始'
   }
+})
+
+const playersText = computed(() => {
+  const m = match.value
+  if (!m) return ''
+  const aAlone = m.participant_a !== null && m.participant_b === null
+  const bAlone = m.participant_b !== null && m.participant_a === null
+  if (aAlone) return m.participant_a_name || '选手A'
+  if (bAlone) return m.participant_b_name || '选手B'
+  const aName = m.participant_a_name || '选手A'
+  const bName = m.participant_b_name || '选手B'
+  return `${aName} VS ${bName}`
 })
 
 function connectWs(): void {
@@ -287,6 +303,15 @@ onBeforeUnmount(() => {
 .match-play__header h1 {
   margin: 0;
   font-size: 22px;
+}
+.match-play__players {
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+  padding: 10px 0;
+  margin-bottom: 16px;
+  border-bottom: 1px solid #ebeef5;
 }
 .match-play__notice {
   margin-bottom: 16px;

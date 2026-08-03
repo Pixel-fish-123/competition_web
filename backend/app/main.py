@@ -13,6 +13,7 @@ from starlette.responses import JSONResponse
 import app.models.audit_log  # noqa: F401
 import app.models.competition  # noqa: F401
 import app.models.match  # noqa: F401
+import app.models.point  # noqa: F401
 import app.models.registration  # noqa: F401
 import app.models.team  # noqa: F401
 import app.models.user  # noqa: F401
@@ -22,6 +23,8 @@ from app.api.auth import router as auth_router
 from app.api.competitions import router as competitions_router
 from app.api.health import router as health_router
 from app.api.matches import router as matches_router
+from app.api.points import router as points_router
+from app.api.rankings import router as rankings_router
 from app.api.registrations import router as registrations_router
 from app.api.teams import router as teams_router
 from app.api.ws import router as ws_router
@@ -78,6 +81,8 @@ app.include_router(teams_router)
 app.include_router(registrations_router)
 app.include_router(competitions_router)
 app.include_router(matches_router)
+app.include_router(points_router)
+app.include_router(rankings_router)
 app.include_router(ws_router)
 
 # Mount static files from frontend-dist if it exists at startup.

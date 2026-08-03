@@ -30,7 +30,7 @@ from app.schemas.competition import (
     CompetitionStatusUpdate,
     CompetitionUpdate,
 )
-from app.services import match_service
+from app.services import match_service, points_service
 
 router = APIRouter()
 
@@ -165,6 +165,12 @@ def change_status(
         )
         if unfinished:
             raise HTTPException(status_code=400, detail="存在未完成的对局")
+        # todo 17：进入 finished 时自动按 points_rule 结算积分（幂等；
+        # 结算本身会拒绝未完成对局，此处守卫已先拦 400）。
+        try:
+            points_service.settle_competition_points(db, competition)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     competition.status = payload.status
     db.commit()

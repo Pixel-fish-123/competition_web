@@ -113,13 +113,19 @@ class TournamentEngine(ABC):
 
     @abstractmethod
     def generate_schedule(self) -> list[RoundPlan]:
-        """Build the full tournament schedule.
+        """Build the tournament schedule.
 
         Invariants every concrete engine must uphold:
         - every participant appears exactly once per round (or takes a bye);
         - no participant faces the same opponent twice;
         - every real match has a unique ``match_id``.
         Calling this method repeatedly must be idempotent.
+
+        Most formats materialize the full schedule up front. Swiss is the
+        exception: it materializes rounds incrementally, so ``generate_schedule``
+        returns only the rounds generated SO FAR (round 1 at construction) and
+        the format-specific ``generate_next_round()`` adds the next round once
+        the previous one is fully recorded.
         """
 
     def record_result(self, match_id: int, result: MatchResult) -> None:

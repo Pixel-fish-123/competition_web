@@ -28,7 +28,7 @@ from app.models.registration import Registration
 from app.models.user import User
 from app.plugins.registry import registry
 from app.schemas.match import MatchResultIn
-from app.tournaments.base import MatchResult, TournamentEngine
+from app.tournaments.base import MatchResult, RoundPlan, TournamentEngine
 from app.tournaments.round_robin import RoundRobinEngine
 from app.tournaments.single_elim import SingleElimEngine
 from app.tournaments.swiss import SwissEngine
@@ -104,6 +104,12 @@ def _replay_finished(db: Session, competition: Competition, engine: TournamentEn
         except ValueError:
             # 数据不一致（不应发生）：跳过该局，避免阻塞其它对局。
             continue
+        # 瑞士轮：每记完一局就尝试生成下一轮（上一轮未完结时返回 None）。
+        # 这让引擎在回放完第 N 轮后、回放第 N+1 轮之前已把 N+1 轮物化进
+        # _match_index —— 否则重建后回放第 N+1 轮结果会因 match_id 未知而
+        # 被上面的 except 跳过，积分结算/名次与对局服务漂移。
+        if hasattr(engine, "generate_next_round"):
+            engine.generate_next_round()
 
 
 def _require_assigned_referee(competition: Competition, referee: User) -> None:
@@ -120,44 +126,90 @@ def _require_assigned_referee(competition: Competition, referee: User) -> None:
 # ---------------------------------------------------------------- schedule
 
 
+def _materialize_round(
+    db: Session, competition: Competition, round_plan: RoundPlan
+) -> list[Match]:
+    """为引擎的某一轮生成 Match 行（幂等，无 commit）。
+
+    - 该 (competition, round_id) 已有 Match 行 -> 直接返回 []（重复调用安全，
+      并发下两个裁判先后触发 advance 也只会创建一轮）。
+    - 轮空对局直接标记 finished / result_type=win（winner=participant_a）。
+    - commit 由调用方统一收尾（build_schedule_for_competition /
+      _advance_swiss_if_due），保证每轮整批落地、不产生半截轮次。
+    """
+    existing = (
+        db.query(Match)
+        .filter(
+            Match.competition_id == competition.id,
+            Match.round_id == round_plan.round_number,
+        )
+        .count()
+    )
+    if existing:
+        return []
+
+    matches: list[Match] = []
+    for plan in round_plan.matches:
+        match = Match(
+            competition_id=competition.id,
+            round_id=round_plan.round_number,
+            participant_a=plan.participant_a,
+            participant_b=plan.participant_b,
+            engine_match_id=plan.match_id,
+            status="pending",
+        )
+        if plan.is_bye:
+            # Metis E2：轮空自动计 1 胜，不可记分。
+            match.status = "finished"
+            match.result_type = "win"
+            match.result = {
+                "winner": plan.participant_a,
+                "is_draw": False,
+                "score_a": 0.0,
+                "score_b": 0.0,
+            }
+        db.add(match)
+        matches.append(match)
+    return matches
+
+
+def _advance_swiss_if_due(db: Session, competition: Competition) -> None:
+    """把瑞士轮"上一轮已完结、下一轮未落地"的轮次补进 DB（幂等）。
+
+    必须在结果 commit 之后调用：本函数重建引擎 + 回放已完成对局（能看到
+    刚提交的结果），引擎内部逐局调用 generate_next_round 推进轮次，再把引擎
+    中尚无 DB 行的轮次物化，最后单次 commit 收尾。重复调用 / 并发触发安全
+    （_materialize_round 幂等），修复崩溃/竞态下漏物化的轮次。
+    """
+    if competition.tournament_format != "swiss":
+        return
+    engine = _rebuild_engine(db, competition)
+    _replay_finished(db, competition, engine)
+    for round_plan in engine.generate_schedule():
+        _materialize_round(db, competition, round_plan)
+    db.commit()
+
+
 def build_schedule_for_competition(
     db: Session, competition: Competition
 ) -> list[Match]:
-    """按引擎 schedule 为比赛生成全部 Match 行。
+    """按引擎 schedule 为比赛生成 Match 行（瑞士轮：仅生成 round 1）。
 
     不足 2 名已批准选手时返回空列表（允许空赛程的比赛照常流转）。
     轮空对局直接标记为 finished / result_type=win（winner=participant_a）。
+    非瑞士轮引擎的 generate_schedule 返回完整赛程 -> 全部轮次一次性落地；
+    瑞士轮只返回当前已物化的轮次（初始仅 round 1），后续轮次由
+    ``_advance_swiss_if_due`` 在前一轮全部完结后逐轮落地。
     """
     participants = _approved_participant_ids(db, competition)
     if len(participants) < 2:
         return []
 
     engine = _build_engine(competition, participants)
-    schedule = engine.generate_schedule()
 
     matches: list[Match] = []
-    for round_plan in schedule:
-        for plan in round_plan.matches:
-            match = Match(
-                competition_id=competition.id,
-                round_id=round_plan.round_number,
-                participant_a=plan.participant_a,
-                participant_b=plan.participant_b,
-                engine_match_id=plan.match_id,
-                status="pending",
-            )
-            if plan.is_bye:
-                # Metis E2：轮空自动计 1 胜，不可记分。
-                match.status = "finished"
-                match.result_type = "win"
-                match.result = {
-                    "winner": plan.participant_a,
-                    "is_draw": False,
-                    "score_a": 0.0,
-                    "score_b": 0.0,
-                }
-            db.add(match)
-            matches.append(match)
+    for round_plan in engine.generate_schedule():
+        matches.extend(_materialize_round(db, competition, round_plan))
     db.commit()
     for match in matches:
         db.refresh(match)
@@ -319,4 +371,11 @@ def record_match_result(
     match.status = "finished"
     db.commit()
     db.refresh(match)
+
+    # 瑞士轮：最后一局结果提交后，把下一轮对局物化进 DB。post-commit 的
+    # fresh-check（非同一事务内）是刻意的 —— 重建引擎能看到刚提交的结果，
+    # 且并发裁判同时提交时，后到者的 advance 会因 _materialize_round 幂等
+    # 而只创建一轮对局。
+    if competition.tournament_format == "swiss":
+        _advance_swiss_if_due(db, competition)
     return match

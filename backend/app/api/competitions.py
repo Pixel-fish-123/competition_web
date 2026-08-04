@@ -156,6 +156,9 @@ def change_status(
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
     elif payload.status == "finished":
+        # 瑞士轮：先把因上一轮结果提交而应落地、却因崩溃/竞态漏物化的轮次
+        # 补进 DB，再检查未完成对局 —— 否则缺轮会导致守卫放行过早 finish。
+        match_service._advance_swiss_if_due(db, competition)
         unfinished = (
             db.query(Match)
             .filter(

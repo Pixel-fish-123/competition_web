@@ -3,13 +3,20 @@
 TDD suite for ``app/tournaments/swiss.py``. Pure algorithm tests — no DB, no
 network. Coverage:
 
-- deterministic pre-generated schedule: default round count, matches per round,
-  no repeated opponent pair across the whole tournament
-- odd fields: exactly one bye per round, no participant receives two byes,
-  bye = 1 point / 0 net in standings
+- TRUE Swiss semantics: only round 1 exists at construction; each later round
+  is materialized by ``generate_next_round()`` ONLY once the previous round is
+  fully recorded, and pairs by the CURRENT standings (points → Buchholz → net
+  → seed) — round 2+ pairings depend on recorded results, not a fixed seed
+  schedule
+- deterministic rebuild: replaying the same results into a fresh engine
+  reproduces identical pairings AND match_ids (match_id determinism is the #1
+  rebuild risk)
+- odd fields: exactly one bye per round, bye to the lowest-ranked participant
+  that has not yet had one, no double bye, bye = 1 point / 0 net
 - Metis E1 draw semantics: 0.5 points for both sides
 - full recording: standings sorted by points, undefeated champion on top
-- Buchholz (对手分) tie-break: equal points, higher Buchholz ranks above
+- Buchholz (对手分) tie-break: equal points + net, higher Buchholz ranks above
+- standings correctness after each round (points + Buchholz)
 - Metis V1 ordering: points desc → Buchholz desc → net desc → seed asc
 - input / config validation
 - completion and round-advance behaviour
@@ -29,87 +36,213 @@ from app.tournaments.swiss import SwissEngine
 
 
 def _real_matches(schedule):
-    """All non-bye matches across the whole schedule."""
+    """All non-bye matches across the given rounds."""
     return [m for r in schedule for m in r.matches if not m.is_bye]
 
 
-def _byes(schedule):
-    """All bye matches across the whole schedule."""
-    return [m for r in schedule for m in r.matches if m.is_bye]
+def _pairs_of(plan):
+    """Pair set of a round's real matches."""
+    return {frozenset((m.participant_a, m.participant_b)) for m in plan.matches if not m.is_bye}
 
 
-def _pair_to_plan(engine):
-    return {
-        frozenset((m.participant_a, m.participant_b)): m
-        for m in _real_matches(engine.generate_schedule())
-    }
-
-
-def _record_all_wins(engine, choose_winner):
-    """Record every real match, choosing the winner via ``choose_winner(a, b)``
-    with 1-0 scores aligned to the actual a/b orientation of each plan."""
-    for m in _real_matches(engine.generate_schedule()):
+def _record_round(engine, round_number, choose_winner):
+    """Record every real match of an existing round, advancing to the next."""
+    plan = engine.generate_schedule()[round_number - 1]
+    for m in plan.matches:
+        if m.is_bye:
+            continue
         winner = choose_winner(m.participant_a, m.participant_b)
         if m.participant_a == winner:
             engine.record_result(m.match_id, MatchResult(winner=winner, score_a=1, score_b=0))
         else:
             engine.record_result(m.match_id, MatchResult(winner=winner, score_a=0, score_b=1))
+    return engine.generate_next_round()
+
+
+def _play_round_and_return(engine, round_number, choose_winner):
+    """Like ``_record_round`` but also returns the recorded (match_id, result)
+    pairs in replay order (for rebuild-determinism replay)."""
+    plan = engine.generate_schedule()[round_number - 1]
+    played = []
+    for m in plan.matches:
+        if m.is_bye:
+            continue
+        winner = choose_winner(m.participant_a, m.participant_b)
+        if m.participant_a == winner:
+            res = MatchResult(winner=winner, score_a=1, score_b=0)
+        else:
+            res = MatchResult(winner=winner, score_a=0, score_b=1)
+        engine.record_result(m.match_id, res)
+        played.append((m.match_id, res))
+    engine.generate_next_round()
+    return played
 
 
 # --------------------------------------------------------------------------- #
-# scheduling
+# scheduling: round 1 = seed order, round 2+ = result-dependent
 # --------------------------------------------------------------------------- #
 
 
 def test_default_rounds_and_no_repeated_opponents_eight_players():
-    """8 players / config {} → min(ceil(log2(8))+1, 7) = 4 rounds; every round
-    has 4 real matches (16 total); no opponent pair repeats across the whole
-    tournament; every participant appears exactly once per round."""
+    """8 players / config {} → min(ceil(log2(8))+1, 7) = 4 rounds.
+
+    Round 1 is seed order ((1,2),(3,4),(5,6),(7,8)). After round 1 is recorded,
+    ``generate_next_round`` materializes round 2 whose pairings follow the
+    round-1 standings (NOT the fixed seed-order schedule); no opponent pair
+    repeats across the materialized rounds; every participant appears exactly
+    once per round.
+    """
     engine = SwissEngine([1, 2, 3, 4, 5, 6, 7, 8], {})
-    schedule = engine.generate_schedule()
+    assert engine._rounds == 4
+    assert len(engine.generate_schedule()) == 1  # only round 1 at construction
 
-    assert [r.round_number for r in schedule] == [1, 2, 3, 4]
-    assert len(_real_matches(schedule)) == 16
-    for r in schedule:
-        assert len([m for m in r.matches if not m.is_bye]) == 4
-        assert not any(m.is_bye for m in r.matches)
+    r1 = engine.generate_schedule()[0]
+    assert r1.round_number == 1
+    assert _pairs_of(r1) == {frozenset((1, 2)), frozenset((3, 4)), frozenset((5, 6)), frozenset((7, 8))}
 
-    pairs = {frozenset((m.participant_a, m.participant_b)) for m in _real_matches(schedule)}
-    assert len(pairs) == 16
+    # Round 1 winners {1, 4, 5, 7} — deliberately mixed so the round-2 pairing
+    # is NOT the fixed seed-order round 2 of the old engine.
+    r1_winners = {1: 1, 3: 4, 5: 5, 7: 7}  # keyed by round-1 participant_a
+    for m in r1.matches:
+        winner = r1_winners[m.participant_a]
+        if m.participant_a == winner:
+            engine.record_result(m.match_id, MatchResult(winner=winner, score_a=1, score_b=0))
+        else:
+            engine.record_result(m.match_id, MatchResult(winner=winner, score_a=0, score_b=1))
+    r2 = engine.generate_next_round()
+    assert r2 is not None and r2.round_number == 2
+
+    # Round 2 is standings-based, NOT the fixed seed-order round: the old
+    # engine's round 2 was {(1,3),(2,4),(5,7),(6,8)}.
+    r2_pairs = _pairs_of(r2)
+    assert r2_pairs != {frozenset((1, 3)), frozenset((2, 4)), frozenset((5, 7)), frozenset((6, 8))}
+    assert len(r2_pairs) == 4
+
+    # No opponent pair repeats across the materialized rounds.
+    all_pairs = {
+        frozenset((m.participant_a, m.participant_b))
+        for m in _real_matches(engine.generate_schedule())
+    }
+    assert len(all_pairs) == 8
 
     for pid in range(1, 9):
-        for r in schedule:
+        for r in engine.generate_schedule():
             round_pids = {m.participant_a for m in r.matches} | {m.participant_b for m in r.matches}
             assert pid in round_pids
-        opponents = [
-            m.participant_b if m.participant_a == pid else m.participant_a
-            for m in _real_matches(schedule)
-            if pid in (m.participant_a, m.participant_b)
-        ]
-        assert len(set(opponents)) == 4
+
+
+def test_round2_pairings_depend_on_round1_results():
+    """THE Swiss property: two different round-1 result sets produce two
+    different round-2 pairings (pairings are not fixed at construction)."""
+    def engine_with(r1_winners):
+        engine = SwissEngine([1, 2, 3, 4, 5, 6, 7, 8], {})
+        r1 = engine.generate_schedule()[0]
+        for m in r1.matches:
+            winner = r1_winners[m.participant_a]  # keyed by round-1 participant_a
+            if m.participant_a == winner:
+                engine.record_result(m.match_id, MatchResult(winner=winner, score_a=1, score_b=0))
+            else:
+                engine.record_result(m.match_id, MatchResult(winner=winner, score_a=0, score_b=1))
+        return engine, engine.generate_next_round()
+
+    # All lower seeds win → winners {1,3,5,7}.
+    engine_a, r2_a = engine_with({1: 1, 3: 3, 5: 5, 7: 7})
+    # Mixed winners {1,4,5,7} (3 loses to 4).
+    engine_b, r2_b = engine_with({1: 1, 3: 4, 5: 5, 7: 7})
+
+    pairs_a = _pairs_of(r2_a)
+    pairs_b = _pairs_of(r2_b)
+    assert len(pairs_a) == len(pairs_b) == 4
+    assert pairs_a != pairs_b
+    # And the concrete traced pairings: standings-based round 2 vs seed group.
+    assert pairs_a == {frozenset((1, 3)), frozenset((5, 7)), frozenset((2, 4)), frozenset((6, 8))}
+    assert pairs_b == {frozenset((1, 4)), frozenset((5, 7)), frozenset((2, 3)), frozenset((6, 8))}
+
+
+def test_generate_next_round_gating():
+    """generate_next_round returns None while the previous round is incomplete
+    and after the configured round count is reached."""
+    engine = SwissEngine([1, 2, 3, 4], {})  # 3 rounds
+    assert len(engine.generate_schedule()) == 1
+
+    # Half-recorded round 1 → still None.
+    r1 = engine.generate_schedule()[0]
+    m0 = r1.matches[0]
+    engine.record_result(m0.match_id, MatchResult(winner=m0.participant_a))
+    assert engine.generate_next_round() is None
+    assert len(engine.generate_schedule()) == 1
+
+    # Round 1 fully recorded → round 2 materializes.
+    m1 = r1.matches[1]
+    engine.record_result(m1.match_id, MatchResult(winner=m1.participant_a))
+    assert engine.generate_next_round().round_number == 2
+
+    # Round 2 fully recorded → round 3 materializes.
+    for m in engine.generate_schedule()[1].matches:
+        engine.record_result(m.match_id, MatchResult(winner=m.participant_a))
+    assert engine.generate_next_round().round_number == 3
+
+    # All rounds materialized → None, even with a pending last round.
+    assert engine.generate_next_round() is None
+
+    # And after the last round is recorded → still None.
+    for m in engine.generate_schedule()[2].matches:
+        engine.record_result(m.match_id, MatchResult(winner=m.participant_a))
+    assert engine.generate_next_round() is None
+    assert engine.is_complete() is True
+
+
+# --------------------------------------------------------------------------- #
+# odd fields / byes
+# --------------------------------------------------------------------------- #
 
 
 def test_five_players_one_bye_per_round_no_double_bye():
-    """5 players / config {} → 4 rounds (min(ceil(log2(5))+1, 7)); each round
-    has exactly one bye and no participant gets a second bye (4 byes over 5
-    players); each bye counts as 1 point / 0 net in standings."""
+    """5 players / config {} → 4 rounds (min(ceil(log2(5))+1, 7)). Each round
+    has exactly one bye, no participant receives a second bye (4 byes over 5
+    players), and a bye counts as 1 point / 0 net in standings."""
     engine = SwissEngine([1, 2, 3, 4, 5], {})
-    schedule = engine.generate_schedule()
+    assert engine._rounds == 4
 
-    assert [r.round_number for r in schedule] == [1, 2, 3, 4]
-    assert len(_real_matches(schedule)) == 8  # 2 per round × 4 rounds
-    for r in schedule:
-        assert len([m for m in r.matches if m.is_bye]) == 1
+    bye_recipients = []
+    for round_number in range(1, 5):
+        plan = engine.generate_schedule()[round_number - 1]
+        byes = [m for m in plan.matches if m.is_bye]
+        assert len(byes) == 1
+        recipient = byes[0].participant_a
+        assert recipient not in bye_recipients  # no double bye
+        bye_recipients.append(recipient)
+        assert len([m for m in plan.matches if not m.is_bye]) == 2
+        if round_number == 1:
+            # Round-1 bye recipient has no real matches yet → bye = 1 / 0 net.
+            by_id = {row.participant_id: row for row in engine.standings()}
+            assert by_id[recipient].wins == 1.0
+            assert by_id[recipient].net_score == 0.0
+        _record_round(engine, round_number, lambda a, b: min(a, b))
 
-    byes = _byes(schedule)
-    assert len(byes) == 4
-    recipients = [m.participant_a for m in byes]
-    assert len(set(recipients)) == len(recipients)  # no participant has 2 byes
+    assert len(bye_recipients) == 4
+    assert set(bye_recipients) <= set(range(1, 6))
 
+    # Every bye recipient keeps at least the one point the bye awarded (they
+    # may have won/lost real matches in other rounds on top of it).
     by_id = {row.participant_id: row for row in engine.standings()}
-    for pid in recipients:
-        assert by_id[pid].wins == 1.0  # bye = 1 point
-        assert by_id[pid].net_score == 0.0  # bye = 0 net
+    for pid in bye_recipients:
+        assert by_id[pid].wins >= 1.0
+
+
+def test_bye_goes_to_lowest_ranked_each_round():
+    """n=5, lower id wins: the bye goes to the lowest-ranked participant that
+    has not yet had one — 5, then 4, then 3, then 2 (traced deterministically),
+    never repeating a recipient."""
+    engine = SwissEngine([1, 2, 3, 4, 5], {})
+    expected_byes = [5, 4, 3, 2]
+    for round_number, expected in enumerate(expected_byes, start=1):
+        plan = engine.generate_schedule()[round_number - 1]
+        byes = [m for m in plan.matches if m.is_bye]
+        assert len(byes) == 1
+        assert byes[0].participant_a == expected
+        _record_round(engine, round_number, lambda a, b: min(a, b))
+    assert engine.is_complete() is True
 
 
 # --------------------------------------------------------------------------- #
@@ -130,12 +263,13 @@ def test_draw_gives_half_point_to_both():
 
 
 def test_record_all_wins_lower_id_always_wins():
-    """Recording every match with the lower id winning → standings sorted by
+    """Recording every round with the lower id winning → standings sorted by
     points desc; participant 1 is the undefeated 4-point leader."""
     engine = SwissEngine([1, 2, 3, 4, 5, 6, 7, 8], {})
-    _record_all_wins(engine, lambda a, b: min(a, b))
-    standings = engine.standings()
+    for round_number in range(1, engine._rounds + 1):
+        _record_round(engine, round_number, lambda a, b: min(a, b))
 
+    standings = engine.standings()
     assert standings[0].participant_id == 1
     assert standings[0].wins == 4.0  # undefeated champion
     assert all(row.wins <= 4.0 for row in standings)
@@ -150,38 +284,63 @@ def test_record_all_wins_lower_id_always_wins():
 
 
 def test_buchholz_tie_break_ranks_above_equal_points():
-    """Two players finish with equal points and net but different Buchholz
-    (对手分): player 1's opponents accumulated more final points than player 2's
-    opponents, so 1 ranks above 2 despite the identical (points, net)."""
-    engine = SwissEngine([1, 2, 3, 4, 5, 6, 7, 8], {})
-    # Winner per unordered pair (all matches are 1-0). This must match the
-    # deterministic schedule exactly — guarded by the set-equality assert below.
-    outcomes = {
-        frozenset((1, 2)): 2, frozenset((3, 4)): 3, frozenset((5, 6)): 5, frozenset((7, 8)): 7,
-        frozenset((1, 3)): 1, frozenset((2, 4)): 4, frozenset((5, 7)): 5, frozenset((6, 8)): 6,
-        frozenset((1, 4)): 4, frozenset((2, 3)): 3, frozenset((5, 8)): 5, frozenset((6, 7)): 7,
-        frozenset((1, 5)): 1, frozenset((2, 6)): 2, frozenset((3, 7)): 3, frozenset((4, 8)): 4,
-    }
-    pair_to_plan = _pair_to_plan(engine)
-    assert set(outcomes) == set(pair_to_plan)  # schedule matches the traced pairing
+    """4 players, 2 rounds: 1 and 2 tie on points (1.0) and net (0.0);
+    Buchholz (对手分) decides — 1's opponents accumulated 3.0 final points vs
+    2's 1.0, so 1 ranks above 2 despite identical (points, net)."""
+    engine = SwissEngine([1, 2, 3, 4], {})
+    r1 = engine.generate_schedule()[0]
+    assert _pairs_of(r1) == {frozenset((1, 2)), frozenset((3, 4))}
 
-    for pair, winner in outcomes.items():
-        plan = pair_to_plan[pair]
-        if plan.participant_a == winner:
-            engine.record_result(plan.match_id, MatchResult(winner=winner, score_a=1, score_b=0))
-        else:
-            engine.record_result(plan.match_id, MatchResult(winner=winner, score_a=0, score_b=1))
+    # Round 1: 1 beats 2, 3 beats 4 (trace deterministically).
+    engine.record_result(
+        next(m for m in r1.matches if m.participant_a == 1).match_id,
+        MatchResult(winner=1, score_a=1, score_b=0),
+    )
+    engine.record_result(
+        next(m for m in r1.matches if m.participant_a == 3).match_id,
+        MatchResult(winner=3, score_a=1, score_b=0),
+    )
+    r2 = engine.generate_next_round()
+    assert r2 is not None and r2.round_number == 2
+    assert _pairs_of(r2) == {frozenset((1, 3)), frozenset((2, 4))}
+
+    # Round 2: 3 beats 1, 2 beats 4.
+    engine.record_result(
+        next(m for m in r2.matches if 1 in (m.participant_a, m.participant_b)).match_id,
+        MatchResult(winner=3, score_a=0, score_b=1),
+    )
+    engine.record_result(
+        next(m for m in r2.matches if 2 in (m.participant_a, m.participant_b)).match_id,
+        MatchResult(winner=2, score_a=1, score_b=0),
+    )
 
     standings = engine.standings()
     by_id = {row.participant_id: row for row in standings}
-
-    # 1 and 2 tie on points (2.0) and net (0.0); Buchholz decides: 1's played
-    # opponents (2,3,4,5 → 2+3+3+3=11) beat 2's (1,4,3,6 → 2+3+3+1=9).
-    assert by_id[1].wins == by_id[2].wins == 2.0
+    assert by_id[1].wins == by_id[2].wins == 1.0
     assert by_id[1].net_score == by_id[2].net_score == 0.0
-    assert by_id[1].opponent_wins == 11.0
-    assert by_id[2].opponent_wins == 9.0
+    assert by_id[1].opponent_wins == 3.0
+    assert by_id[2].opponent_wins == 1.0
     assert standings.index(by_id[1]) < standings.index(by_id[2])
+    assert by_id[3].wins == 2.0  # champion
+    assert standings[0].participant_id == 3
+
+
+def test_standings_correct_after_each_round():
+    """Points and Buchholz are recomputed from the results recorded so far,
+    for whatever rounds are materialized."""
+    engine = SwissEngine([1, 2, 3, 4, 5, 6], {})  # 3 rounds
+    _record_round(engine, 1, lambda a, b: min(a, b))
+
+    by_id = {row.participant_id: row for row in engine.standings()}
+    assert [by_id[p].wins for p in (1, 2, 3, 4, 5, 6)] == [1.0, 0.0, 1.0, 0.0, 1.0, 0.0]
+    assert [by_id[p].opponent_wins for p in (1, 2, 3, 4, 5, 6)] == [0.0, 1.0, 0.0, 1.0, 0.0, 1.0]
+    assert [row.participant_id for row in engine.standings()] == [1, 3, 5, 2, 4, 6]
+
+    _record_round(engine, 2, lambda a, b: min(a, b))  # 1>3, 2>5, 4>6
+    by_id = {row.participant_id: row for row in engine.standings()}
+    assert [by_id[p].wins for p in (1, 2, 3, 4, 5, 6)] == [2.0, 1.0, 1.0, 1.0, 1.0, 0.0]
+    assert [by_id[p].opponent_wins for p in (1, 2, 3, 4, 5, 6)] == [2.0, 3.0, 3.0, 1.0, 1.0, 2.0]
+    assert [row.participant_id for row in engine.standings()] == [1, 2, 3, 4, 5, 6]
 
 
 # --------------------------------------------------------------------------- #
@@ -214,25 +373,66 @@ def test_value_error_for_invalid_participants():
 
 def test_is_complete_after_all_real_matches_recorded():
     engine = SwissEngine([1, 2, 3, 4, 5, 6, 7, 8], {})
-    real = _real_matches(engine.generate_schedule())
 
     assert engine.is_complete() is False
-    for m in real[:-1]:
+    r1 = engine.generate_schedule()[0]
+    for m in r1.matches:
         engine.record_result(m.match_id, MatchResult(winner=m.participant_a))
-        assert engine.is_complete() is False
-    engine.record_result(real[-1].match_id, MatchResult(winner=real[-1].participant_a))
-    assert engine.is_complete() is True
+    # Round 1 fully recorded but rounds 2-4 not materialized → NOT complete
+    # (the base implementation would wrongly report complete here).
+    assert engine.is_complete() is False
+
+    engine.generate_next_round()
+    assert engine.is_complete() is False
+
+    for round_number in range(2, engine._rounds + 1):
+        _record_round(engine, round_number, lambda a, b: min(a, b))
+        assert engine.is_complete() is (round_number == engine._rounds)
 
 
 def test_next_round_returns_rounds_in_order():
     engine = SwissEngine([1, 2, 3, 4, 5, 6, 7, 8], {})
-    schedule = engine.generate_schedule()
-
     for expected in (1, 2, 3, 4):
         assert engine.next_round().round_number == expected
-        for m in schedule[expected - 1].matches:
-            engine.record_result(m.match_id, MatchResult(winner=m.participant_a))
+        _record_round(engine, expected, lambda a, b: min(a, b))
     assert engine.next_round() is None
+
+
+# --------------------------------------------------------------------------- #
+# rebuild determinism (match_id determinism is the #1 risk)
+# --------------------------------------------------------------------------- #
+
+
+def test_rebuild_determinism():
+    """generate_next_round must be a pure function of (participants, results):
+    a rebuilt engine that replays the same results materializes IDENTICAL
+    pairings AND match_ids — otherwise persisted engine_match_id would no
+    longer match the rebuilt engine and recording would 400."""
+    participants = [1, 2, 3, 4, 5, 6, 7, 8]
+    winner_fn = lambda a, b: b if (a + b) % 3 == 0 else a
+
+    # Play rounds 1-2 on one engine and capture (match_id, result) in order.
+    engine_a = SwissEngine(participants, {})
+    played = _play_round_and_return(engine_a, 1, winner_fn)
+    played += _play_round_and_return(engine_a, 2, winner_fn)
+    schedule_a = engine_a.generate_schedule()
+
+    # Rebuild from scratch and replay exactly the same results, calling
+    # generate_next_round after every record (mirrors _replay_finished).
+    engine_b = SwissEngine(participants, {})
+    for match_id, res in played:
+        engine_b.record_result(match_id, res)
+        engine_b.generate_next_round()
+    schedule_b = engine_b.generate_schedule()
+
+    assert schedule_a == schedule_b  # RoundPlan equality covers ids + players
+
+    # Repeat the whole thing once more: full determinism, no state leakage.
+    engine_c = SwissEngine(participants, {})
+    for match_id, res in played:
+        engine_c.record_result(match_id, res)
+        engine_c.generate_next_round()
+    assert engine_c.generate_schedule() == schedule_a
 
 
 # --------------------------------------------------------------------------- #
@@ -242,15 +442,25 @@ def test_next_round_returns_rounds_in_order():
 
 def test_fifty_players_default_rounds_seven():
     """50 players / config {} → min(ceil(log2(50))+1, 7) = 7 rounds; 25 real
-    matches per round; no opponent pair repeats across the whole tournament."""
+    matches per round; no opponent pair repeats across the whole tournament;
+    every participant plays exactly once per round."""
     engine = SwissEngine(list(range(1, 51)), {})
-    schedule = engine.generate_schedule()
-
     assert engine._rounds == 7 == min(math.ceil(math.log2(50)) + 1, 7)
-    assert [r.round_number for r in schedule] == list(range(1, 8))
-    assert len(_real_matches(schedule)) == 25 * 7
-    for r in schedule:
-        assert len([m for m in r.matches if not m.is_bye]) == 25
 
-    pairs = {frozenset((m.participant_a, m.participant_b)) for m in _real_matches(schedule)}
-    assert len(pairs) == 25 * 7
+    all_pairs = set()
+    for round_number in range(1, 8):
+        plan = engine.generate_schedule()[round_number - 1]
+        assert plan.round_number == round_number
+        assert len([m for m in plan.matches if not m.is_bye]) == 25
+        assert not any(m.is_bye for m in plan.matches)  # even field
+        round_pairs = _pairs_of(plan)
+        assert len(round_pairs) == 25
+        assert round_pairs.isdisjoint(all_pairs)  # no repeated opponents
+        all_pairs |= round_pairs
+        for pid in range(1, 51):
+            round_pids = {m.participant_a for m in plan.matches} | {m.participant_b for m in plan.matches}
+            assert pid in round_pids
+        _record_round(engine, round_number, lambda a, b: min(a, b))
+
+    assert len(all_pairs) == 25 * 7
+    assert engine.is_complete() is True

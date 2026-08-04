@@ -2,102 +2,220 @@
   <div class="match-play">
     <div class="match-play__header">
       <h1>对局 #{{ matchId }}</h1>
-      <el-tag v-if="match" :type="matchStatusType" effect="dark">
+      <el-tag v-if="match" :type="matchStatusType" effect="dark" size="large">
         {{ matchStatusText }}
       </el-tag>
     </div>
 
-    <div v-if="match" class="match-play__players">{{ playersText }}</div>
-
-    <el-alert
-      v-if="!isRefereeOrAdmin"
-      type="info"
-      :closable="false"
-      title="选手只读模式：你只能查看对局，无法操作棋盘。"
-      class="match-play__notice"
-    />
-
-    <div v-if="noSession" class="match-play__empty">
-      <el-empty description="对局尚未开始" />
-      <el-button
-        v-if="isRefereeOrAdmin"
-        type="primary"
-        :loading="starting"
-        @click="onStartMatch"
-      >
-        开始对局
-      </el-button>
-    </div>
-
-    <div v-else-if="state" class="match-play__body">
-      <div class="match-play__board">
-        <component
-          :is="boardComp"
-          v-if="boardComp"
-          :state="state"
-          :selectable="isRefereeOrAdmin && !state.game_over"
-          @select="onSelectCell"
-        />
-        <el-alert
-          v-else
-          type="warning"
-          title="该玩法暂未支持前端组件"
-          :closable="false"
-        />
+    <!-- 状态一：等待开赛 -->
+    <div v-if="match && match.status === 'pending'" class="match-play__state">
+      <div class="match-play__teams">
+        <div class="match-play__team match-play__team--red">
+          <span class="match-play__team-label">红方</span>
+          <span class="match-play__team-name">{{ redName }}</span>
+        </div>
+        <div class="match-play__vs">VS</div>
+        <div class="match-play__team match-play__team--blue">
+          <span class="match-play__team-label">蓝方</span>
+          <span class="match-play__team-name">{{ blueName }}</span>
+        </div>
       </div>
 
-      <div class="match-play__side">
-        <div
-          v-if="isRefereeOrAdmin && !state.game_over"
-          class="match-play__acting"
-        >
-          <span class="match-play__acting-label">替哪一方操作</span>
-          <el-radio-group v-model="actingSide" size="small">
-            <el-radio-button value="defender">守护者方</el-radio-button>
-            <el-radio-button value="attacker">掠夺者方</el-radio-button>
-          </el-radio-group>
+      <div v-if="isRefereeOrAdmin" class="match-play__action">
+        <el-button type="primary" size="large" :loading="starting" @click="onStartMatch">
+          开始对局
+        </el-button>
+      </div>
+      <el-alert
+        v-else
+        type="info"
+        :closable="false"
+        title="等待裁判开赛"
+        description="对局尚未开始，请耐心等待裁判操作。"
+        class="match-play__notice"
+      />
+    </div>
+
+    <!-- 状态二：正在进行 -->
+    <div v-else-if="match && match.status === 'in_progress'" class="match-play__state">
+      <div class="match-play__live">
+        <span class="match-play__live-dot" />
+        <span class="match-play__live-text">比赛进行中</span>
+      </div>
+
+      <div class="match-play__teams">
+        <div class="match-play__team match-play__team--red">
+          <span class="match-play__team-label">红方</span>
+          <span class="match-play__team-name">{{ redName }}</span>
         </div>
+        <div class="match-play__vs">VS</div>
+        <div class="match-play__team match-play__team--blue">
+          <span class="match-play__team-label">蓝方</span>
+          <span class="match-play__team-name">{{ blueName }}</span>
+        </div>
+      </div>
 
-        <component
-          :is="controlsComp"
-          v-if="isRefereeOrAdmin && controlsComp"
-          :selected-cell="selectedCell"
-          :game-over="state.game_over"
-          @occupy="onOccupy"
-          @cancel="onCancel"
-          @reoccupy="onReoccupy"
-          @set-time="onSetTime"
-          @end-game="onEndGame"
-        />
+      <div v-if="isRefereeOrAdmin" class="match-play__action">
+        <el-button type="danger" size="large" @click="openResultDialog">
+          结束比赛
+        </el-button>
+      </div>
+      <el-alert
+        v-else
+        type="info"
+        :closable="false"
+        title="比赛进行中，等待裁判结束"
+        class="match-play__notice"
+      />
+    </div>
 
-        <div v-if="isRefereeOrAdmin && state.game_over" class="match-play__result">
-          <el-button type="success" :loading="recording" @click="onRecordResult">
-            记录结果
+    <!-- 状态三：已结束 -->
+    <div v-else-if="match && match.status === 'finished'" class="match-play__state">
+      <!-- 3a. 结果展示 + 手动编辑 -->
+      <section class="match-play__section">
+        <h2 class="match-play__section-title">比赛结果</h2>
+        <div v-if="match.result" class="match-play__result">
+          <div class="match-play__result-line">
+            <span class="match-play__result-team match-play__result-team--red">
+              {{ redName }}
+            </span>
+            <span class="match-play__result-score">
+              {{ formatScore(match.result.score_a) }} : {{ formatScore(match.result.score_b) }}
+            </span>
+            <span class="match-play__result-team match-play__result-team--blue">
+              {{ blueName }}
+            </span>
+          </div>
+          <div class="match-play__result-winner">
+            <el-tag :type="winnerTagType" effect="light">
+              {{ winnerText }}
+            </el-tag>
+          </div>
+        </div>
+        <el-empty v-else description="待录入结果" :image-size="60" />
+      </section>
+
+      <!-- 3b. 玩法日志导入（仅裁判/admin） -->
+      <section v-if="isRefereeOrAdmin" class="match-play__section">
+        <h2 class="match-play__section-title">导入玩法日志</h2>
+        <div class="match-play__import">
+          <input
+            ref="fileInput"
+            type="file"
+            accept=".json,.csv"
+            class="match-play__file-input"
+            @change="onFileChange"
+          />
+          <el-checkbox v-model="syncScores">同步分数</el-checkbox>
+          <el-button
+            type="primary"
+            :disabled="!selectedFile"
+            :loading="importing"
+            @click="onImportLog"
+          >
+            导入玩法日志
           </el-button>
+          <span v-if="selectedFile" class="match-play__file-name">{{ selectedFile.name }}</span>
         </div>
-      </div>
+        <el-alert
+          v-if="importSuccess"
+          type="success"
+          :closable="false"
+          title="玩法日志导入成功"
+          class="match-play__notice"
+        />
+      </section>
+
+      <!-- 3c. 玩法日志展示（所有用户） -->
+      <section v-if="match.gameplay_log" class="match-play__section">
+        <h2 class="match-play__section-title">玩法日志</h2>
+        <div class="match-play__log-summary">
+          <div class="match-play__log-scores">
+            日志分数: 红方 {{ formatScore(logScores.defender) }} :
+            {{ formatScore(logScores.attacker) }} 蓝方
+          </div>
+          <div class="match-play__log-winner">
+            日志判定: <el-tag :type="logWinnerTagType" size="small">{{ logWinnerText }}</el-tag>
+          </div>
+          <div v-if="logImportedAt" class="match-play__log-time">
+            导入时间: {{ formatTime(logImportedAt) }}
+          </div>
+        </div>
+        <div class="match-play__timeline">
+          <div
+            v-for="(ev, idx) in logEvents"
+            :key="idx"
+            class="match-play__event"
+            :class="`match-play__event--${eventTypeClass(ev.type)}`"
+          >
+            <span class="match-play__event-time">{{ ev.time }}</span>
+            <span class="match-play__event-text">{{ ev.text }}</span>
+          </div>
+        </div>
+      </section>
     </div>
 
+    <!-- 加载中 -->
     <div v-else class="match-play__empty">
       <el-empty description="连接中…" />
     </div>
+
+    <!-- 结束比赛 / 编辑结果 对话框 -->
+    <el-dialog
+      v-model="resultDialogVisible"
+      :title="match?.status === 'in_progress' ? '结束比赛并录入结果' : '编辑比赛结果'"
+      width="420px"
+    >
+      <el-form label-width="80px">
+        <el-form-item label="红方得分">
+          <el-input-number v-model="resultForm.score_a" :min="0" :step="1" />
+        </el-form-item>
+        <el-form-item label="蓝方得分">
+          <el-input-number v-model="resultForm.score_b" :min="0" :step="1" />
+        </el-form-item>
+        <el-form-item label="胜者">
+          <el-radio-group v-model="resultForm.winner">
+            <el-radio :value="'red'">红方</el-radio>
+            <el-radio :value="'blue'">蓝方</el-radio>
+            <el-radio :value="'draw'">平局</el-radio>
+          </el-radio-group>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="resultDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="submittingResult" @click="onSubmitResult">
+          提交结果
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import http from '../api/http'
 import { useAuthStore } from '../stores/auth'
-import { TriangleBoard, TriangleControls } from '../plugins/triangle-occupy'
-import type { TriangleCell, TriangleState } from '../plugins/triangle-occupy/TriangleBoard.vue'
-import type { Component } from 'vue'
 
-// 玩法插件组件映射表（todo 6）：按 gameplay_plugin 名解析对局页的棋盘/操作组件。
-// 保留静态 import（单玩法映射表足够，不引入动态 import）。
-const PLUGIN_COMPONENTS: Record<string, { board: Component; controls: Component | null }> = {
-  triangle_occupy: { board: TriangleBoard, controls: TriangleControls },
+interface MatchResult {
+  winner: number | null
+  is_draw: boolean
+  score_a: number
+  score_b: number
+}
+
+interface GameplayEvent {
+  time: string
+  type: string
+  text: string
+}
+
+interface GameplayLog {
+  events: GameplayEvent[]
+  scores: { defender: number | null; attacker: number | null }
+  winner: string | null
+  imported_at: string | null
 }
 
 interface MatchInfo {
@@ -109,14 +227,12 @@ interface MatchInfo {
   participant_a_name: string | null
   participant_b_name: string | null
   status: string
-  result: Record<string, unknown> | null
+  result: MatchResult | null
   result_type: string | null
   referee_id: number | null
-  gameplay_plugin: string | null
+  gameplay_log: GameplayLog | null
 }
 
-// GET /api/matches/{id} 返回嵌套的 MatchDetailOut = {match, session}
-// （todo 2 ①：旧代码把整个响应当扁平 MatchInfo 用，participant_a/status 全 undefined）。
 interface MatchDetailResp {
   match: MatchInfo
   session: { id: number; state: Record<string, unknown> | null } | null
@@ -128,14 +244,21 @@ const auth = useAuthStore()
 const matchId = computed(() => Number(route.params.mid))
 
 const match = ref<MatchInfo | null>(null)
-const state = ref<TriangleState | null>(null)
-const noSession = ref(false)
-const selectedCell = ref<TriangleCell | null>(null)
 const starting = ref(false)
-const recording = ref(false)
-const sessionId = ref<number | null>(null)
-// 裁判替哪一方操作（todo 2 ③）：defender -> participant_a，attacker -> participant_b。
-const actingSide = ref<'defender' | 'attacker'>('defender')
+const submittingResult = ref(false)
+const importing = ref(false)
+const importSuccess = ref(false)
+
+const resultDialogVisible = ref(false)
+const resultForm = reactive<{ score_a: number; score_b: number; winner: 'red' | 'blue' | 'draw' }>({
+  score_a: 0,
+  score_b: 0,
+  winner: 'red',
+})
+
+const fileInput = ref<HTMLInputElement | null>(null)
+const selectedFile = ref<File | null>(null)
+const syncScores = ref(false)
 
 let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -143,11 +266,8 @@ let unmounted = false
 
 const isRefereeOrAdmin = computed(() => auth.isRefereeOrAdmin)
 
-// todo 6：按 gameplay_plugin 名解析玩法组件；未知插件名时 boardComp 为 null，
-// 模板渲染降级提示而非白屏。
-const pluginComp = computed(() => PLUGIN_COMPONENTS[match.value?.gameplay_plugin ?? ''] ?? null)
-const boardComp = computed(() => pluginComp.value?.board ?? null)
-const controlsComp = computed(() => pluginComp.value?.controls ?? null)
+const redName = computed(() => match.value?.participant_a_name || '选手A')
+const blueName = computed(() => match.value?.participant_b_name || '选手B')
 
 const matchStatusType = computed(() => {
   switch (match.value?.status) {
@@ -171,63 +291,99 @@ const matchStatusText = computed(() => {
   }
 })
 
-const playersText = computed(() => {
-  const m = match.value
-  if (!m) return ''
-  const aAlone = m.participant_a !== null && m.participant_b === null
-  const bAlone = m.participant_b !== null && m.participant_a === null
-  if (aAlone) return m.participant_a_name || '选手A'
-  if (bAlone) return m.participant_b_name || '选手B'
-  const aName = m.participant_a_name || '选手A'
-  const bName = m.participant_b_name || '选手B'
-  return `${aName} VS ${bName}`
+const winnerText = computed(() => {
+  const r = match.value?.result
+  if (!r) return '待录入结果'
+  if (r.is_draw) return '平局'
+  if (r.winner === match.value?.participant_a) return `红方 ${redName.value} 获胜`
+  if (r.winner === match.value?.participant_b) return `蓝方 ${blueName.value} 获胜`
+  return '结果待定'
 })
+
+const winnerTagType = computed(() => {
+  const r = match.value?.result
+  if (!r) return 'info'
+  if (r.is_draw) return 'warning'
+  if (r.winner === match.value?.participant_a) return 'danger'
+  if (r.winner === match.value?.participant_b) return 'primary'
+  return 'info'
+})
+
+const logEvents = computed<GameplayEvent[]>(() => match.value?.gameplay_log?.events ?? [])
+const logScores = computed(() => {
+  const s = match.value?.gameplay_log?.scores
+  return { defender: s?.defender ?? null, attacker: s?.attacker ?? null }
+})
+const logWinner = computed(() => match.value?.gameplay_log?.winner ?? null)
+const logImportedAt = computed(() => match.value?.gameplay_log?.imported_at ?? null)
+
+const logWinnerText = computed(() => {
+  switch (logWinner.value) {
+    case 'defender':
+      return '红方'
+    case 'attacker':
+      return '蓝方'
+    case 'draw':
+      return '平局'
+    default:
+      return '未判定'
+  }
+})
+
+const logWinnerTagType = computed(() => {
+  switch (logWinner.value) {
+    case 'defender':
+      return 'danger'
+    case 'attacker':
+      return 'primary'
+    case 'draw':
+      return 'warning'
+    default:
+      return 'info'
+  }
+})
+
+function eventTypeClass(type: string): string {
+  switch (type) {
+    case 'l1':
+    case 'victory':
+      return 'gold'
+    case 'encircle':
+      return 'blue'
+    case 'system':
+      return 'muted'
+    default:
+      return 'default'
+  }
+}
+
+function formatScore(score: number | null | undefined): string {
+  if (score === null || score === undefined) return '-'
+  return String(score)
+}
+
+function formatTime(iso: string | null): string {
+  if (!iso) return '-'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString()
+}
 
 function connectWs(): void {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   ws = new WebSocket(`${proto}://${location.host}/ws/matches/${matchId.value}`)
 
-  ws.onmessage = (event) => {
-    try {
-      const frame = JSON.parse(event.data)
-      // WS 帧的 state 是 get_state 的嵌套公开视图 {controller_state: {...},
-      // elapsed_minutes, sides, game_over, winner}（plugin.py:185-196），而
-      // TriangleState 期望扁平字段。解包：controller_state 提供棋盘字段，
-      // 外层 elapsed_minutes 等作为补充（todo 2 ②）。
-      const unpack = (raw: any): TriangleState =>
-        (raw?.controller_state ? { ...raw.controller_state, ...raw } : raw) as TriangleState
-      if (frame.type === 'state_update') {
-        state.value = unpack(frame.state)
-        sessionId.value = frame.session_id ?? null
-        noSession.value = false
-      } else if (frame.type === 'no_session') {
-        state.value = null
-        sessionId.value = null
-        noSession.value = true
-      } else if (frame.type === 'session_ended') {
-        // 会话结束保留最终状态（todo 2 ④）：帧带 state 用之（含 game_over=true），
-        // 否则保留旧值 —— 保证"记录结果"按钮（v-if=state.game_over）可见、
-        // 棋盘仍显示终局。不清空 state。
-        if (frame.state) {
-          state.value = unpack(frame.state)
-        }
-        noSession.value = false
-        sessionId.value = null
-      }
-    } catch {
-      // ignore malformed frames
-    }
+  ws.onmessage = () => {
+    // 简化帧：match_started / score_update / no_session 都只需刷新对局数据。
+    loadMatch()
   }
 
   ws.onclose = (event) => {
     if (unmounted) return
     if (event.code === 1008) {
-      // 对局/比赛被删除或无权限：停止无限重连（todo 8 删除 finished 比赛后
-      // 不应残留订阅者每 3s 重连一次）。
       ElMessage.info('对局已关闭')
       return
     }
-    // Attempt reconnect after a short delay.
     if (reconnectTimer) clearTimeout(reconnectTimer)
     reconnectTimer = setTimeout(() => {
       if (unmounted) return
@@ -238,82 +394,10 @@ function connectWs(): void {
 
 async function loadMatch(): Promise<void> {
   try {
-    // 响应是嵌套 MatchDetailOut={match, session}（todo 2 ①）：解包取 data.match，
-    // 会话存在时预填 sessionId。
     const { data: detail } = await http.get<MatchDetailResp>(`/matches/${matchId.value}`)
     match.value = detail.match
-    if (detail.session) {
-      sessionId.value = detail.session.id
-    }
   } catch {
     ElMessage.error('加载对局信息失败')
-  }
-}
-
-function onSelectCell(cell: TriangleCell): void {
-  selectedCell.value = cell
-}
-
-async function submitAction(payload: {
-  action: string
-  cell_id?: number
-  score?: number
-  tp?: number
-  minutes?: number
-}): Promise<void> {
-  if (!sessionId.value) {
-    ElMessage.warning('对局会话尚未建立')
-    return
-  }
-  // todo 2 ③：按替操作方推导被操作的参赛单位 id（defender -> participant_a，
-  // attacker -> participant_b）。不再硬编码 0 —— 后端 validate_result 对 0
-  // 会以 400「非法操作」拒绝。
-  const pid =
-    actingSide.value === 'defender'
-      ? match.value?.participant_a
-      : match.value?.participant_b
-  if (pid === null || pid === undefined) {
-    ElMessage.warning('该侧参赛者未确定，请先开赛')
-    return
-  }
-  try {
-    await http.post(`/gameplay/triangle_occupy/session/${sessionId.value}/action`, {
-      participant_id: pid,
-      payload,
-    })
-  } catch (e: unknown) {
-    const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-    ElMessage.error(detail || '操作失败')
-  }
-}
-
-function onOccupy(payload: { cell_id: number; score?: number; tp?: number }): void {
-  submitAction({ action: 'occupy', ...payload })
-}
-
-function onCancel(cellId: number): void {
-  submitAction({ action: 'cancel', cell_id: cellId })
-}
-
-function onReoccupy(cellId: number): void {
-  submitAction({ action: 'reoccupy', cell_id: cellId })
-}
-
-function onSetTime(minutes: number): void {
-  submitAction({ action: 'set_time', minutes })
-}
-
-async function onEndGame(): Promise<void> {
-  if (!sessionId.value) {
-    ElMessage.warning('对局会话尚未建立')
-    return
-  }
-  try {
-    await http.post(`/gameplay/triangle_occupy/session/${sessionId.value}/end`)
-    ElMessage.success('对局已结束')
-  } catch (e: unknown) {
-    const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-    ElMessage.error(detail || '结束对局失败')
   }
 }
 
@@ -322,6 +406,7 @@ async function onStartMatch(): Promise<void> {
   try {
     await http.post(`/matches/${matchId.value}/start`, {})
     ElMessage.success('对局已开始')
+    await loadMatch()
   } catch (e: unknown) {
     const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
     ElMessage.error(detail || '开赛失败')
@@ -330,28 +415,77 @@ async function onStartMatch(): Promise<void> {
   }
 }
 
-async function onRecordResult(): Promise<void> {
-  if (!state.value) return
-  recording.value = true
+function openResultDialog(): void {
+  const r = match.value?.result
+  resultForm.score_a = r?.score_a ?? 0
+  resultForm.score_b = r?.score_b ?? 0
+  if (r?.is_draw) {
+    resultForm.winner = 'draw'
+  } else if (r?.winner === match.value?.participant_a) {
+    resultForm.winner = 'red'
+  } else if (r?.winner === match.value?.participant_b) {
+    resultForm.winner = 'blue'
+  } else {
+    resultForm.winner = 'red'
+  }
+  resultDialogVisible.value = true
+}
+
+async function onSubmitResult(): Promise<void> {
+  submittingResult.value = true
   try {
-    const winner =
-      state.value.winner === 'draw'
-        ? null
-        : state.value.winner === 'defender'
-          ? match.value?.participant_a ?? null
-          : match.value?.participant_b ?? null
+    const isDraw = resultForm.winner === 'draw'
+    const winner = isDraw
+      ? null
+      : resultForm.winner === 'red'
+        ? match.value?.participant_a ?? null
+        : match.value?.participant_b ?? null
     await http.post(`/matches/${matchId.value}/result`, {
       winner,
-      is_draw: state.value.winner === 'draw',
-      score_a: state.value.scores.defender,
-      score_b: state.value.scores.attacker,
+      is_draw: isDraw,
+      score_a: resultForm.score_a,
+      score_b: resultForm.score_b,
     })
-    ElMessage.success('结果已记录')
+    ElMessage.success('结果已提交，比赛已结束')
+    resultDialogVisible.value = false
+    await loadMatch()
   } catch (e: unknown) {
     const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-    ElMessage.error(detail || '记录结果失败')
+    ElMessage.error(detail || '提交结果失败')
   } finally {
-    recording.value = false
+    submittingResult.value = false
+  }
+}
+
+function onFileChange(event: Event): void {
+  const input = event.target as HTMLInputElement
+  selectedFile.value = input.files?.[0] ?? null
+  importSuccess.value = false
+}
+
+async function onImportLog(): Promise<void> {
+  if (!selectedFile.value) {
+    ElMessage.warning('请先选择日志文件')
+    return
+  }
+  importing.value = true
+  try {
+    const form = new FormData()
+    form.append('file', selectedFile.value)
+    const url = syncScores.value
+      ? `/matches/${matchId.value}/gameplay-log?sync=true`
+      : `/matches/${matchId.value}/gameplay-log`
+    await http.post(url, form)
+    ElMessage.success('玩法日志导入成功')
+    importSuccess.value = true
+    selectedFile.value = null
+    if (fileInput.value) fileInput.value.value = ''
+    await loadMatch()
+  } catch (e: unknown) {
+    const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    ElMessage.error(detail || '导入玩法日志失败')
+  } finally {
+    importing.value = false
   }
 }
 
@@ -379,57 +513,226 @@ onBeforeUnmount(() => {
 .match-play {
   max-width: 1100px;
   margin: 0 auto;
+  padding: 0 16px;
 }
 .match-play__header {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 .match-play__header h1 {
   margin: 0;
   font-size: 22px;
 }
-.match-play__players {
-  text-align: center;
-  font-size: 16px;
-  font-weight: 600;
-  color: #303133;
-  padding: 10px 0;
-  margin-bottom: 16px;
-  border-bottom: 1px solid #ebeef5;
-}
-.match-play__notice {
-  margin-bottom: 16px;
-}
-.match-play__body {
-  display: flex;
-  gap: 24px;
-  align-items: flex-start;
-  flex-wrap: wrap;
-}
-.match-play__board {
-  flex: 1;
-  min-width: 640px;
-}
-.match-play__side {
-  width: 320px;
+.match-play__state {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  align-items: center;
+  gap: 24px;
+  padding: 24px 0;
 }
-.match-play__acting {
+.match-play__teams {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+.match-play__team {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 32px;
+  border-radius: 12px;
+  min-width: 200px;
+}
+.match-play__team--red {
+  background: #fef0f0;
+  border: 1px solid #f56c6c;
+}
+.match-play__team--blue {
+  background: #ecf5ff;
+  border: 1px solid #409eff;
+}
+.match-play__team-label {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 2px;
+}
+.match-play__team--red .match-play__team-label {
+  color: #f56c6c;
+}
+.match-play__team--blue .match-play__team-label {
+  color: #409eff;
+}
+.match-play__team-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: #303133;
+  text-align: center;
+}
+.match-play__vs {
+  font-size: 24px;
+  font-weight: 800;
+  color: #909399;
+}
+.match-play__action {
+  display: flex;
+  gap: 12px;
+}
+.match-play__notice {
+  width: 100%;
+  max-width: 480px;
+}
+.match-play__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  border-radius: 999px;
+  background: #f0f9eb;
+  border: 1px solid #67c23a;
+}
+.match-play__live-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #67c23a;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.match-play__live-text {
+  font-size: 16px;
+  font-weight: 700;
+  color: #67c23a;
+}
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+}
+.match-play__section {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto 24px;
+  padding: 20px;
+  border: 1px solid #ebeef5;
+  border-radius: 12px;
+  background: #fff;
+}
+.match-play__section-title {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #303133;
+}
+.match-play__result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.match-play__result-line {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 20px;
+  font-weight: 700;
+}
+.match-play__result-team--red {
+  color: #f56c6c;
+}
+.match-play__result-team--blue {
+  color: #409eff;
+}
+.match-play__result-score {
+  color: #303133;
+  font-size: 24px;
+}
+.match-play__result-winner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.match-play__import {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.match-play__file-input {
+  max-width: 260px;
+}
+.match-play__file-name {
+  font-size: 13px;
+  color: #606266;
+}
+.match-play__log-summary {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin-bottom: 16px;
   padding: 12px 16px;
-  border: 1px solid #e4e7ed;
-  border-radius: 8px;
   background: #f8f9fb;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #303133;
 }
-.match-play__acting-label {
-  font-size: 13px;
-  color: #606266;
+.match-play__log-scores {
+  font-weight: 600;
+}
+.match-play__log-winner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.match-play__log-time {
+  font-size: 12px;
+  color: #909399;
+}
+.match-play__timeline {
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid #ebeef5;
+  border-radius: 8px;
+  padding: 8px 0;
+}
+.match-play__event {
+  display: flex;
+  gap: 12px;
+  padding: 8px 16px;
+  font-size: 14px;
+  border-bottom: 1px solid #f5f7fa;
+}
+.match-play__event:last-child {
+  border-bottom: none;
+}
+.match-play__event-time {
+  flex-shrink: 0;
+  font-family: monospace;
+  color: #909399;
+  min-width: 48px;
+}
+.match-play__event-text {
+  color: #303133;
+}
+.match-play__event--gold .match-play__event-text {
+  color: #b8860b;
+  font-weight: 600;
+}
+.match-play__event--blue .match-play__event-text {
+  color: #409eff;
+}
+.match-play__event--muted .match-play__event-text {
+  color: #909399;
 }
 .match-play__empty {
   display: flex;
@@ -437,8 +740,5 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 16px;
   padding: 48px 0;
-}
-.match-play__result {
-  text-align: center;
 }
 </style>

@@ -7,12 +7,13 @@
 - 订阅白名单（Metis E13）：仅 admin、该比赛 ``referee_ids`` 成员、以及
   参赛双方（个体报名 = user_id 相等；队伍报名 = 该队 TeamMember）可订阅；
   其余以 **1008** 拒绝。
-- 连接建立后推送初始状态帧：有会话 -> {"type": "state_update", ...}，
-  尚无会话 -> {"type": "no_session"}。
+- 连接建立后推送初始状态帧：对局进行中 -> {"type": "match_started",
+  "match_id": ...}，否则 -> {"type": "no_session"}。
 - 消息频率限制（Metis E13）：每连接每秒 ≤ 10 条文本消息，超限以 1008
   断开。
-- 对局状态变更由 match_service / 玩法路由调用 ws_manager.broadcast 推送
-  （本模块不直接产生业务广播）。
+- 对局状态变更由 match_service 调用 ws_manager.broadcast 推送
+  （match_started / score_update；玩法已从对局流程解耦，不再推送棋盘
+  状态帧）。
 """
 
 from __future__ import annotations
@@ -30,10 +31,9 @@ from app.core.security import decode_access_token
 from app.core.ws_manager import _Connection, manager
 from app.db import SessionLocal
 from app.models.competition import Competition
-from app.models.match import GameSession, Match
+from app.models.match import Match
 from app.models.team import TeamMember
 from app.models.user import User
-from app.plugins.registry import registry
 
 router = APIRouter()
 
@@ -95,35 +95,17 @@ def _is_subscriber_allowed(
     return False
 
 
-def _load_initial_state(match_id: int) -> tuple[int, dict] | None:
-    """返回 (session_id, 公开状态)；DB GameSession（开赛路径）优先，
-    其次玩法路由的内存会话存储。无会话返回 None。"""
-    with SessionLocal() as db:
-        session = (
-            db.query(GameSession)
-            .filter(GameSession.match_id == match_id)
-            .order_by(GameSession.id.desc())
-            .first()
-        )
-        if session is not None:
-            plugin = registry.get(session.plugin_name)
-            state = session.state_json
-            if plugin is not None:
-                try:
-                    state = plugin.get_state(session.id, session.state_json)
-                except ValueError:
-                    pass
-            return session.id, state
-    from app.plugins.routes import _sessions  # 玩法路由的内存会话存储
+def _load_initial_state(match_id: int) -> dict | None:
+    """返回初始状态帧；对局进行中 -> {"type": "match_started", "match_id": ...}，
+    未进行 -> None（端点回退为 {"type": "no_session"}）。
 
-    for sid, sess in _sessions.items():
-        if sess.get("match_id") == match_id:
-            plugin = sess["plugin"]
-            try:
-                state = plugin.get_state(sid, sess["state"])
-            except ValueError:
-                state = sess["state"]
-            return sid, state
+    玩法已从对局流程解耦：不再加载 GameSession 棋盘状态，只告知前端对局
+    是否已经开始。
+    """
+    with SessionLocal() as db:
+        match = db.get(Match, match_id)
+        if match is not None and match.status == "in_progress":
+            return {"type": "match_started", "match_id": match_id}
     return None
 
 
@@ -169,10 +151,7 @@ async def match_ws(websocket: WebSocket, match_id: int) -> None:
         if initial is None:
             await websocket.send_json({"type": "no_session"})
         else:
-            session_id, state = initial
-            await websocket.send_json(
-                {"type": "state_update", "session_id": session_id, "state": state}
-            )
+            await websocket.send_json(initial)
     except Exception:
         # 初始帧发送失败（连接已断开）——直接进入清理。
         pass

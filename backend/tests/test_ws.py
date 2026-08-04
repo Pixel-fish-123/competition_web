@@ -4,9 +4,9 @@ Covered:
 - Metis E13 subscription whitelist: unauthenticated -> 4401; non-participant /
   non-referee / non-admin -> 1008; participant / referee / admin allowed.
 - Initial state frame on connect ({"type": "no_session"} when not started;
-  {"type": "state_update", ...} when a session exists).
-- Broadcast hooks: start_match (match_service) and gameplay action
-  (plugin routes) push state_update to all subscribed clients.
+  {"type": "match_started", ...} when the match is in_progress).
+- Broadcast hooks: start_match (match_service) pushes match_started; result
+  recording pushes score_update to all subscribed clients.
 - Rate limit: > 10 client messages within 1s closes the connection (1008).
 
 The TestClient shares one portal/event loop for all HTTP + WebSocket
@@ -22,24 +22,6 @@ from app.models.registration import Registration
 
 PASSWORD = "secret123"
 
-
-@pytest.fixture(autouse=True)
-def _clean_plugin_session_state():
-    """清除跨测试残留的插件内存会话与活控制器。
-
-    玩法的 ``_CONTROLLERS`` 按 ``id(state)`` 索引且 state 仅在会话存活期
-    被引用：DB 会话路径（start_match）返回后 state 即失去引用，id 可被复用，
-    残留控制器会让后续测试取到陈旧棋盘。``_sessions`` 同理会跨测试累积
-    同 match_id 的过期条目。测试前/后各清一次，保证随机顺序下互不串扰。
-    """
-    import app.plugins.routes as plugin_routes
-    import app.plugins.triangle_occupy.plugin as tri_plugin
-
-    plugin_routes._sessions.clear()
-    tri_plugin._CONTROLLERS.clear()
-    yield
-    plugin_routes._sessions.clear()
-    tri_plugin._CONTROLLERS.clear()
 SONG_LIB = {
     "songs": [
         {"name": f"歌曲{i:02d}", "type": "Glitch", "level": f"{i % 10 + 6}"}
@@ -201,7 +183,7 @@ def test_ws_referee_connects(admin_client):
     _, match, referee_token, _ = _setup_match(admin_client)
     with _ws_connect(admin_client, match["id"], referee_token) as ws:
         frame = ws.receive_json()
-        assert frame["type"] in ("no_session", "state_update")
+        assert frame["type"] in ("no_session", "match_started")
 
 
 def test_ws_admin_connects(admin_client):
@@ -209,14 +191,14 @@ def test_ws_admin_connects(admin_client):
     admin_token = admin_client.cookies.get("token")
     with _ws_connect(admin_client, match["id"], admin_token) as ws:
         frame = ws.receive_json()
-        assert frame["type"] in ("no_session", "state_update")
+        assert frame["type"] in ("no_session", "match_started")
 
 
 # ------------------------------------------------------------------ broadcasts
 
 
 def test_ws_participant_receives_broadcast_when_referee_starts_match(admin_client):
-    """start_match (match_service) broadcasts state_update to subscribers."""
+    """start_match (match_service) broadcasts match_started to subscribers."""
     _, match, referee_token, _ = _setup_match(admin_client)
 
     with _ws_connect(admin_client, match["id"], referee_token) as referee_ws:
@@ -226,66 +208,53 @@ def test_ws_participant_receives_broadcast_when_referee_starts_match(admin_clien
         _as_user(admin_client, referee_token)
         resp = admin_client.post(f"/api/matches/{match['id']}/start", json={})
         assert resp.status_code == 200, resp.text
-        session_id = resp.json()["session_id"]
-        assert session_id is not None
+        assert resp.json()["status"] == "in_progress"
 
         frame = referee_ws.receive_json()
-        assert frame["type"] == "state_update"
-        assert frame["session_id"] == session_id
-        assert "state" in frame
+        assert frame == {"type": "match_started", "match_id": match["id"]}
 
 
-def test_ws_broadcast_state_change_to_two_clients(admin_client):
-    """A gameplay action through the plugin routes pushes state_update to all
-    subscribers of that match."""
-    _, match, referee_token, players = _setup_match(admin_client)
-
-    # Create an in-memory gameplay session via the plugin route.
+def test_ws_participant_receives_match_started_initial_frame_when_in_progress(
+    admin_client,
+):
+    """对局进行中连接 WS -> 初始帧直接是 match_started（无需先 no_session）。"""
+    _, match, referee_token, _ = _setup_match(admin_client)
     _as_user(admin_client, referee_token)
-    config = {
-        "song_lib": SONG_LIB,
-        "seed": 1,
-        "sides": {
-            match["participant_a"]: "defender",
-            match["participant_b"]: "attacker",
-        },
-    }
-    resp = admin_client.post(
-        "/api/gameplay/triangle_occupy/session",
-        json={"match_id": match["id"], "config": config},
-    )
+    resp = admin_client.post(f"/api/matches/{match['id']}/start", json={})
     assert resp.status_code == 200, resp.text
-    session_id = resp.json()["session_id"]
 
-    participant = match["participant_a"]
-    _, p_token = next(p for p in players if p[0] == participant)
-    with _ws_connect(admin_client, match["id"], referee_token) as ref_ws:
-        ref_first = ref_ws.receive_json()
-        assert ref_first["type"] == "state_update"
-        assert ref_first["session_id"] == session_id
+    with _ws_connect(admin_client, match["id"], referee_token) as ws:
+        frame = ws.receive_json()
+        assert frame == {"type": "match_started", "match_id": match["id"]}
 
-        with _ws_connect(admin_client, match["id"], p_token) as p_ws:
-            p_first = p_ws.receive_json()
-            assert p_first["type"] == "state_update"
-            assert p_first["session_id"] == session_id
 
-            # Trigger a gameplay action as the referee.
-            _as_user(admin_client, referee_token)
-            resp = admin_client.post(
-                f"/api/gameplay/triangle_occupy/session/{session_id}/action",
-                json={
-                    "participant_id": participant,
-                    "payload": {"action": "occupy", "cell_id": 1},
-                },
-            )
-            assert resp.status_code == 200, resp.text
+def test_ws_participant_receives_score_update_when_referee_records_result(
+    admin_client,
+):
+    """record_match_result 广播 score_update（含最终比分）给订阅者。"""
+    _, match, referee_token, _ = _setup_match(admin_client)
+    _as_user(admin_client, referee_token)
+    resp = admin_client.post(f"/api/matches/{match['id']}/start", json={})
+    assert resp.status_code == 200, resp.text
 
-            frame_ref = ref_ws.receive_json()
-            frame_p = p_ws.receive_json()
-            assert frame_ref["type"] == "state_update"
-            assert frame_ref["session_id"] == session_id
-            assert frame_ref["state"]["controller_state"]["board"][1]["owner"] == "defender"
-            assert frame_p == frame_ref
+    with _ws_connect(admin_client, match["id"], referee_token) as ws:
+        first = ws.receive_json()
+        assert first["type"] == "match_started"
+
+        # _ws_connect 清空了 cookie jar，POST 前重新以裁判身份登录。
+        _as_user(admin_client, referee_token)
+        resp = admin_client.post(
+            f"/api/matches/{match['id']}/result",
+            json={"winner": match["participant_a"], "score_a": 85.0, "score_b": 72.0},
+        )
+        assert resp.status_code == 200, resp.text
+
+        frame = ws.receive_json()
+        assert frame["type"] == "score_update"
+        assert frame["match_id"] == match["id"]
+        assert frame["status"] == "finished"
+        assert frame["result"]["score_a"] == 85.0
+        assert frame["result"]["winner"] == match["participant_a"]
 
 
 # ------------------------------------------------------------------ rate limit
@@ -304,52 +273,3 @@ def test_ws_rate_limit_closes_connection(admin_client):
         with pytest.raises(WebSocketDisconnect) as exc:
             ws.receive_json()
         assert exc.value.code == 1008
-
-
-# ------------------------------------------------------------------ todo 2 ⑥ end_session broadcast
-#
-# 基线特征（修前失败）：routes.end_session 在 plugin.end_session（内部
-# _drop_controller 丢弃活实例）之后才取控制器，从陈旧的 controller_state 重建
-# （game_over=False），且广播不带 state 字段 —— 前端"记录结果"按钮
-# （v-if=state.game_over）永不出现。断言两个修复点：帧带 state，且
-# controller_state/外层 game_over 均为 True。
-
-
-def test_ws_end_session_broadcasts_game_over_state(admin_client):
-    """end_session 广播 session_ended 必须携带 game_over=True 的最终状态。"""
-    _, match, referee_token, _ = _setup_match(admin_client)
-    _as_user(admin_client, referee_token)
-    config = {
-        "song_lib": SONG_LIB,
-        "seed": 1,
-        "sides": {
-            match["participant_a"]: "defender",
-            match["participant_b"]: "attacker",
-        },
-    }
-    resp = admin_client.post(
-        "/api/gameplay/triangle_occupy/session",
-        json={"match_id": match["id"], "config": config},
-    )
-    assert resp.status_code == 200, resp.text
-    session_id = resp.json()["session_id"]
-
-    with _ws_connect(admin_client, match["id"], referee_token) as ws:
-        first = ws.receive_json()
-        assert first["type"] == "state_update"
-        assert first["session_id"] == session_id
-        assert first["state"]["game_over"] is False
-
-        # _ws_connect 清空了 cookie jar，POST 前重新以裁判身份登录。
-        _as_user(admin_client, referee_token)
-        resp = admin_client.post(
-            f"/api/gameplay/triangle_occupy/session/{session_id}/end"
-        )
-        assert resp.status_code == 200, resp.text
-
-        frame = ws.receive_json()
-        assert frame["type"] == "session_ended"
-        assert frame["session_id"] == session_id
-        assert "state" in frame
-        assert frame["state"]["game_over"] is True
-        assert frame["state"]["controller_state"]["game_over"] is True

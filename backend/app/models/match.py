@@ -8,6 +8,9 @@ Match 是对局生命周期（pending → in_progress → finished）的持久�
   轮次在排表时参赛者未知，两列为 None，开赛时由引擎根据前序结果解析。
 - ``result``（JSON）保存裁判提交的最终结果 {winner, is_draw, score_a,
   score_b}；``result_type`` 为 "win" / "draw" 冗余标记，便于查询过滤。
+- ``gameplay_log``（JSON）保存比赛后从外部 demo 控制器导入的玩法日志
+  （事件数组 + 比分 + 胜者，见 api/matches.py 的 gameplay-log 导入端点）。
+  仅用于展示，不参与赛程推进；对局结果一律由裁判手工输入（record_match_result）。
 - ``engine_match_id`` 是该对局在赛制引擎 schedule 中的全局 match_id
   （引擎按 schedule 迭代顺序从 1 递增分配）。start/record 时按相同
   participants + config 重建引擎，即可用此列定位引擎中的对局并调用
@@ -15,6 +18,8 @@ Match 是对局生命周期（pending → in_progress → finished）的持久�
 
 GameSession 是单局玩法会话（一场对局一套玩法，如 triangle_occupy）：
 
+- 已从 match 流程中移除：开赛不再创建会话，对局完全由裁判手工管理。
+  模型仅保留以便既有数据可读；不得新建（``gameplay_log`` 取代其展示职责）。
 - ``config`` 保存创建会话时的玩法配置（song_lib / seed / sides）。
 - ``state_json`` 保存插件 create_session 返回的初始状态 dict，以及后续
   操作后的最新状态（对局中由裁判在玩法路由内更新，todo 14 仅负责落库）。
@@ -56,6 +61,10 @@ class Match(Base):
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # "win" | "draw"（轮空对局自动记 win，winner=participant_a）。
     result_type: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # 导入的比赛玩法日志（demo 控制器导出）：{"events": [...], "scores":
+    # {"defender": X, "attacker": Y}, "winner": "defender"|"attacker"|"draw"|null,
+    # "imported_at": "ISO 时间戳"}。仅展示用，不影响赛程引擎。
+    gameplay_log: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     referee_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )

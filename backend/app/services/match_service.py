@@ -2,9 +2,13 @@
 
 - ``build_schedule_for_competition``: 比赛进入 ongoing 时按引擎 schedule
   生成全部 Match 行（Metis C7：对局由引擎赛程创建，非人工创建）。
-- ``start_match``: 裁判开赛 -> 创建 GameSession（插件 create_session）；
-  轮空对局自动完结（记 win，不建会话）。
+- ``start_match``: 裁判开赛 -> 对局置为 in_progress（不再创建玩法会话）；
+  轮空对局自动完结（记 win）。
 - ``record_match_result``: 裁判记分 -> 引擎 record_result + 对局落库。
+
+玩法插件已从对局流程解耦：开赛不再调用插件 create_session / 不再建
+GameSession（模型保留仅读旧数据）；比赛后可通过 gameplay-log 导入端点把
+demo 控制器导出的玩法日志存入 ``match.gameplay_log`` 供展示（不参与赛程）。
 
 引擎一致性（关键设计）：
 - participants = 已批准报名按 participant id 排序（个体=user_id，
@@ -23,10 +27,9 @@ from sqlalchemy.orm import Session
 
 from app.core.ws_manager import manager
 from app.models.competition import Competition
-from app.models.match import GameSession, Match
+from app.models.match import Match
 from app.models.registration import Registration
 from app.models.user import User
-from app.plugins.registry import registry
 from app.schemas.match import MatchResultIn
 from app.tournaments.base import MatchResult, RoundPlan, TournamentEngine
 from app.tournaments.round_robin import RoundRobinEngine
@@ -70,12 +73,20 @@ def _rebuild_engine(db: Session, competition: Competition) -> TournamentEngine:
     return _build_engine(competition, participants)
 
 
-def _replay_finished(db: Session, competition: Competition, engine: TournamentEngine) -> None:
+def _replay_finished(
+    db: Session,
+    competition: Competition,
+    engine: TournamentEngine,
+    skip_match_id: int | None = None,
+) -> None:
     """把已完结的真实对局结果回放进引擎，保证单败淘汰后续轮次可解析。
 
     按 Match.id 升序回放 = 按 schedule 顺序回放（排表时 Match 行按
     schedule 迭代顺序创建），因此前序轮次总是先于后续轮次进入引擎。
     轮空对局跳过（引擎按 is_bye 自动计分）。
+
+    ``skip_match_id``：跳过该 match_id 的回放（用于 finished 状态重新
+    记分——重建引擎时不回放旧结果，避免引擎 record_result 拒绝重复记录）。
     """
     finished = (
         db.query(Match)
@@ -88,6 +99,8 @@ def _replay_finished(db: Session, competition: Competition, engine: TournamentEn
         .all()
     )
     for match in finished:
+        if skip_match_id is not None and match.id == skip_match_id:
+            continue  # 重新记分：跳过旧结果，让新结果能正常 record
         if match.participant_b is None and match.participant_a is not None:
             continue  # 轮空，自动计分
         result = match.result or {}
@@ -224,11 +237,12 @@ def start_match(
     match_id: int,
     referee: User,
     scheduled_at: datetime | None = None,
-) -> GameSession | None:
-    """裁判开赛：校验裁判归属 -> 创建 GameSession（插件 create_session）。
+) -> Match:
+    """裁判开赛：校验裁判归属 -> 对局置为 in_progress（不建玩法会话）。
 
-    轮空对局直接完结并返回 None（无会话）；单败淘汰后续轮次的对局参赛者
-    由引擎根据前序已记录结果解析。
+    玩法插件已从对局流程解耦：开赛不再调用插件 create_session / 不再创建
+    GameSession。轮空对局直接完结并返回（status=finished）；单败淘汰后续
+    轮次的对局参赛者由引擎根据前序已记录结果解析并回写。
     """
     match = db.get(Match, match_id)
     if match is None:
@@ -239,7 +253,7 @@ def start_match(
 
     _require_assigned_referee(competition, referee)
 
-    # 轮空对局：排表时已自动完结（记 win，不建会话）；重复开赛幂等。
+    # 轮空对局：排表时已自动完结（记 win）；重复开赛幂等。
     if match.participant_b is None and match.participant_a is not None:
         if match.status != "finished":
             match.status = "finished"
@@ -252,7 +266,7 @@ def start_match(
             }
             match.referee_id = referee.id
             db.commit()
-        return None
+        return match
 
     if match.status != "pending":
         raise HTTPException(status_code=400, detail="对局不在待开始状态")
@@ -276,46 +290,14 @@ def start_match(
         match.participant_a = participant_a
         match.participant_b = participant_b
 
-    plugin = registry.get(competition.gameplay_plugin)
-    if plugin is None:
-        raise HTTPException(status_code=404, detail="玩法插件不存在")
-
-    config = {
-        "song_lib": competition.song_lib,
-        "seed": match.id,
-        "sides": {participant_a: "defender", participant_b: "attacker"},
-    }
-    try:
-        state = plugin.create_session(match.id, config)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    session = GameSession(
-        match_id=match.id,
-        plugin_name=plugin.name,
-        config=config,
-        state_json=state,
-        started_at=_utcnow(),
-    )
-    db.add(session)
     match.status = "in_progress"
     match.referee_id = referee.id
     db.commit()
-    db.refresh(session)
+    db.refresh(match)
 
-    # todo 15：开赛后把最新会话状态实时推送给已订阅该对局的 WS 客户端。
-    plugin = registry.get(session.plugin_name)
-    state = session.state_json
-    if plugin is not None:
-        try:
-            state = plugin.get_state(session.id, session.state_json)
-        except ValueError:
-            pass
-    manager.broadcast(
-        match.id,
-        {"type": "state_update", "session_id": session.id, "state": state},
-    )
-    return session
+    # 对局已开赛：通知订阅该对局的 WS 客户端（不再推送玩法棋盘状态）。
+    manager.broadcast(match.id, {"type": "match_started", "match_id": match.id})
+    return match
 
 
 # ------------------------------------------------------------------ result
@@ -338,8 +320,13 @@ def record_match_result(
 
     _require_assigned_referee(competition, referee)
 
-    if match.status != "in_progress":
-        raise HTTPException(status_code=400, detail="对局未进行中")
+    # 允许 in_progress（首次记分）和 finished（人工修改结果）两种状态。
+    # finished 重新记分时，重建引擎需跳过当前 match 的旧结果（否则引擎
+    # record_result 拒绝重复记录），见下方 _replay_finished(skip_match_id)。
+    if match.status not in ("in_progress", "finished"):
+        raise HTTPException(status_code=400, detail="对局未进行中或已结束")
+
+    is_rerecord = match.status == "finished"
 
     if competition.tournament_format == "single_elim" and payload.is_draw:
         # Metis E1：单败淘汰必须分胜负。
@@ -348,7 +335,8 @@ def record_match_result(
         )
 
     engine = _rebuild_engine(db, competition)
-    _replay_finished(db, competition, engine)
+    # finished 重新记分时跳过当前 match 的旧结果回放，避免引擎拒绝重复记录。
+    _replay_finished(db, competition, engine, skip_match_id=match.id if is_rerecord else None)
 
     engine_result = MatchResult(
         winner=payload.winner,
@@ -371,6 +359,18 @@ def record_match_result(
     match.status = "finished"
     db.commit()
     db.refresh(match)
+
+    # 记分完成：把最终结果推送给订阅该对局的 WS 客户端（仅比分通知，
+    # 不再推送玩法棋盘状态）。
+    manager.broadcast(
+        match.id,
+        {
+            "type": "score_update",
+            "match_id": match.id,
+            "result": match.result,
+            "status": "finished",
+        },
+    )
 
     # 瑞士轮：最后一局结果提交后，把下一轮对局物化进 DB。post-commit 的
     # fresh-check（非同一事务内）是刻意的 —— 重建引擎能看到刚提交的结果，

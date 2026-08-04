@@ -1,5 +1,8 @@
 """TDD tests for triangle_occupy gameplay plugin (todo 13): unit tests calling
-the plugin directly (no HTTP) + a couple through the registry routes.
+the plugin directly (no HTTP).
+
+玩法路由已从对局流程解耦（matches 不再挂载 /api/gameplay/*），这里保留插件
+纯逻辑的单元测试作为参考/未来复用；原 HTTP 路由测试随路由下线一并移除。
 
 QA 场景:
 - happy: 创建会话(song_lib) -> referee occupy -> admin end（胜者映射回选手）
@@ -13,18 +16,9 @@ import json
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
-from app.db import Base, SessionLocal, engine
-from app.main import app
-from app.models.competition import Competition
-from app.models.match import Match
-from app.models.user import User
 from app.plugins.triangle_occupy import plugin as plugin_mod
 from app.plugins.triangle_occupy.plugin import TriangleOccupyPlugin
-
-PASSWORD = "secret123"
-PREFIX = "/api/gameplay/triangle_occupy"
 
 # demo 在仓库外（D:/myproject1/demo）：优先读 demo/test_songs.json，缺失时
 # 回退到内嵌的 ≥23 首合法曲库（保证测试自包含、不依赖外部目录）。
@@ -249,177 +243,3 @@ def test_get_state_returns_public_view(plugin):
     # 公开视图不泄漏内部字段
     assert "_controller" not in view
     json.dumps(view)
-
-
-# ---------------------------------------------------------------------------
-# HTTP 路由测试（经注册表 + lifespan 挂载的真实路由）
-# ---------------------------------------------------------------------------
-
-
-def _flip_role(username: str, role: str) -> None:
-    with SessionLocal() as db:
-        user = db.query(User).filter(User.username == username).one()
-        user.role = role
-        db.commit()
-
-
-def _role_client(username: str, role: str) -> TestClient:
-    c = TestClient(app)
-    resp = c.post(
-        "/api/auth/register",
-        json={"username": username, "email": f"{username}@example.com", "password": PASSWORD},
-    )
-    assert resp.status_code == 200
-    _flip_role(username, role)
-    return c
-
-
-@pytest.fixture()
-def users() -> dict:
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-    with TestClient(app):
-        users_dict = {
-            "admin": _role_client("to_admin", "admin"),
-            "referee": _role_client("to_referee", "referee"),
-            "player": _role_client("to_player", "player"),
-        }
-        with SessionLocal() as db:
-            admin_id = db.query(User).filter(User.username == "to_admin").one().id
-            referee_id = db.query(User).filter(User.username == "to_referee").one().id
-        # todo 7：玩法路由按比赛级 referee_ids 校验 —— HTTP 测试需一张真实
-        # 比赛 + 对局，且把 referee 放进 referee_ids。
-        users_dict["match_id"] = _seed_match(admin_id, [referee_id])
-        yield users_dict
-
-
-def _seed_match(admin_id: int, referee_ids: list[int]) -> int:
-    """Seed a Competition + in_progress Match so the per-competition referee
-    check (todo 7) passes for referee actions in the HTTP tests."""
-    with SessionLocal() as db:
-        comp = Competition(
-            name="HTTP 路由测试比赛",
-            status="ongoing",
-            created_by=admin_id,
-            referee_ids=referee_ids,
-            gameplay_plugin="triangle_occupy",
-        )
-        db.add(comp)
-        db.flush()
-        match = Match(
-            competition_id=comp.id,
-            round_id=1,
-            participant_a=101,
-            participant_b=102,
-            engine_match_id=1,
-            status="in_progress",
-        )
-        db.add(match)
-        db.commit()
-        return match.id
-
-
-def _http_create(users: dict, config: dict | None = None) -> int:
-    resp = users["admin"].post(
-        f"{PREFIX}/session",
-        json={"match_id": users["match_id"], "config": config or _config()},
-    )
-    assert resp.status_code == 200
-    return resp.json()["session_id"]
-
-
-def test_http_happy_chain(users):
-    sid = _http_create(users)
-    # 选手只读状态
-    resp = users["player"].get(f"{PREFIX}/session/{sid}/state")
-    assert resp.status_code == 200
-    assert len(resp.json()["state"]["controller_state"]["board"]) == 27
-    # referee 代表选手 101 占领
-    resp = users["referee"].post(
-        f"{PREFIX}/session/{sid}/action",
-        json={"participant_id": 101, "payload": {"action": "occupy", "cell_id": 1, "score": 90}},
-    )
-    assert resp.status_code == 200
-    assert resp.json()["ok"] is True
-    # admin 结束对局，胜者映射回选手
-    resp = users["admin"].post(f"{PREFIX}/session/{sid}/end")
-    assert resp.status_code == 200
-    result = resp.json()["result"]
-    assert result["is_draw"] is False
-    assert result["winner"] == 101
-    assert result["score_a"] > 0
-
-
-def test_http_player_action_forbidden(users):
-    sid = _http_create(users)
-    resp = users["player"].post(
-        f"{PREFIX}/session/{sid}/action",
-        json={"participant_id": 101, "payload": {"action": "occupy", "cell_id": 1, "score": 90}},
-    )
-    assert resp.status_code == 403
-
-
-def test_http_missing_song_lib_400(users):
-    resp = users["admin"].post(f"{PREFIX}/session", json={"match_id": 1, "config": {}})
-    assert resp.status_code == 400
-    assert resp.json()["detail"] == "歌曲库缺失或格式错误"
-
-
-def test_http_few_songs_400(users):
-    few = {"songs": [{"name": f"S{i}", "type": "Hard", "level": "12"} for i in range(5)]}
-    resp = users["admin"].post(f"{PREFIX}/session", json={"match_id": 1, "config": {"song_lib": few}})
-    assert resp.status_code == 400
-    assert "23" in resp.json()["detail"]
-
-
-def test_http_non_participant_action_400(users):
-    sid = _http_create(users)
-    resp = users["referee"].post(
-        f"{PREFIX}/session/{sid}/action",
-        json={"participant_id": 999, "payload": {"action": "occupy", "cell_id": 1, "score": 90}},
-    )
-    assert resp.status_code == 400
-
-
-# ---------------------------------------------------------------------------
-# todo 2：participant_id 语义回归（前端 submitAction 推导替操作方 -> 落对应阵营）
-# 基线特征：修前这些断言失败 —— 前端硬编码 participant_id=0 导致操作被 400 拒绝；
-# 后端语义上 participant_id 必须是被操作的参赛单位 id（sides 的合法键）。
-# ---------------------------------------------------------------------------
-
-
-def test_http_action_participant_a_lands_on_defender(users):
-    """referee 以 participant_a（defender 方）为 participant_id 操作 -> 落在守护者阵营。"""
-    sid = _http_create(users)
-    resp = users["referee"].post(
-        f"{PREFIX}/session/{sid}/action",
-        json={"participant_id": 101, "payload": {"action": "occupy", "cell_id": 1, "score": 90}},
-    )
-    assert resp.status_code == 200, resp.text
-    board = resp.json()["state"]["controller_state"]["board"]
-    assert board[1]["owner"] == "defender"
-    assert board[2]["owner"] is None
-
-
-def test_http_action_participant_b_lands_on_attacker(users):
-    """referee 以 participant_b（attacker 方）为 participant_id 操作 -> 落在掠夺者阵营。"""
-    sid = _http_create(users)
-    resp = users["referee"].post(
-        f"{PREFIX}/session/{sid}/action",
-        json={"participant_id": 102, "payload": {"action": "occupy", "cell_id": 2, "score": 90}},
-    )
-    assert resp.status_code == 200, resp.text
-    board = resp.json()["state"]["controller_state"]["board"]
-    assert board[2]["owner"] == "attacker"
-    assert board[1]["owner"] is None
-
-
-def test_http_action_participant_zero_rejected_400(users):
-    """前端硬编码的 participant_id=0 不是 sides 合法键 -> 后端 400（不静默通过）。"""
-    sid = _http_create(users)
-    resp = users["referee"].post(
-        f"{PREFIX}/session/{sid}/action",
-        json={"participant_id": 0, "payload": {"action": "occupy", "cell_id": 1, "score": 90}},
-    )
-    assert resp.status_code == 400
-    assert resp.json()["detail"] == "非法操作"

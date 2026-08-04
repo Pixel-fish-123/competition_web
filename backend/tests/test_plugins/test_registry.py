@@ -189,14 +189,16 @@ def test_discover_loads_fixture_fake_plugin():
 # ---------------------------------------------------------------------------
 
 
-def test_admin_list_plugins_returns_registered(client, admin_client):
-    """admin 调 GET /api/admin/plugins 返回 200 且含内置 triangle_occupy。"""
+def test_admin_list_plugins_returns_200(client, admin_client):
+    """admin 调 GET /api/admin/plugins 返回 200 与合法列表。
+
+    玩法已从对局流程解耦：lifespan 不再注册默认插件，注册表通常为空；
+    端点只负责返回当前已注册项（可能是空列表），不报错。
+    """
     resp = admin_client.get("/api/admin/plugins")
     assert resp.status_code == 200
     body = resp.json()
     assert isinstance(body, list)
-    assert any(p["name"] == "triangle_occupy" for p in body)
-    # 每项都含 name + version 字段
     for p in body:
         assert "name" in p and "version" in p
 

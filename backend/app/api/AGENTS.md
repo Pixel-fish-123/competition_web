@@ -22,6 +22,7 @@ FastAPI 路由层：11 个模块，全部端点在此声明，权限/审计/限�
 | competitions | POST /api/competitions/{id}/status | require_admin | 状态机 TRANSITIONS 表；进 ongoing 自动排表、进 finished 自动结算积分 |
 | matches | GET /api/competitions/{cid}/matches, /api/matches/{id} | get_current_user | 列表按 round_id,id 排序 |
 | matches | POST /api/matches/{id}/start, /result | require_referee + 本场 referee_ids | 轮空自动完结；写 `match_start/match_result` 审计 |
+| matches | POST /api/matches/{id}/gameplay-log | require_referee + 本场 referee_ids | 导入 demo 玩法日志（JSON/CSV）；?sync=true 预填 result；写 `match_gameplay_log_import` 审计 |
 | points | GET /api/points/me, /leaderboard | get_current_user | 流水最新在前；leaderboard 按 kind 过滤 |
 | points | POST /api/admin/points | require_admin | 发放活动/手动积分；写 `points_grant` 审计 |
 | rankings | GET /api/rankings/competition/{id}, /global | get_current_user | 场次榜=引擎 standings 重建+回放；global 复用 points leaderboard |
@@ -43,5 +44,6 @@ FastAPI 路由层：11 个模块，全部端点在此声明，权限/审计/限�
 - 报名容量按 `status in ("pending","approved")` 计，重复报名检查先于容量检查（已报名者即使满员也报"已报名"而非"已满"）。
 - 队伍报名在 Registration 存 `user_id=队长`，成员无独立行；`_existing_registration` 靠 user_id 匹配，队伍成员报名会被误判为"已报名"。
 - 状态机 `finished` 是终态：进 finished 前守卫未完成对局（400），再调 `points_service.settle_competition_points`。
-- ws.py 的 `_load_initial_state` 同时读 DB GameSession 和 `plugins/routes._sessions` 内存会话（临时反模式，见根 ANTI-PATTERNS）。
+- ws.py 的 `_load_initial_state` 只读 match.status：in_progress -> `match_started` 帧，否则 `no_session`（玩法已从对局流程解耦，不再读 GameSession）。
+- gameplay-log 导入端点：`require_referee` + 比赛级 `referee_ids` 校验（admin 旁路）；`?sync=true` 仅预填 `match.result`，不结束对局、不触碰引擎。
 - admin_users 最后管理员保护：仅当 `user.id==current_user.id` 且降级时检查 admin 总数==1。

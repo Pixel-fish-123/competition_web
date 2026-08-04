@@ -1,14 +1,14 @@
-"""todo 7: per-competition referee scope on gameplay routes（④A 越权堵漏）。
+"""todo 7: per-competition referee scope on the gameplay-log import endpoint（④A 越权堵漏）。
 
-基线特征（修前失败）：/api/gameplay/<name>/session、/session/{id}/action、
-/session/{id}/end 三个端点只做 require_referee（全局角色）校验 —— 任意全局
-referee 都能操作任何比赛的玩法会话（越权）。修后：referee 必须在该比赛的
-referee_ids 内，admin 始终放行。
+玩法路由已从对局流程解耦，原 /api/gameplay/<name>/session 等端点不复存在；
+其"比赛级裁判归属"校验语义由 gameplay-log 导入端点继承 —— referee 必须在该
+比赛的 referee_ids 内才能导入日志，admin 始终放行。
 
-覆盖：create_session / submit_action / end_session 三端点 ×
-（未指派裁判 403 / 指派裁判 200 / admin 200）；另覆盖 admin 建会、未指派
-全局裁判事后操作同一会话仍 403 的对抗场景。
+覆盖：POST /api/matches/{id}/gameplay-log ×
+（未指派裁判 403 / 指派裁判 200 / admin 200 / player 403 / 未知对局 404）。
 """
+
+import json
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,15 +20,11 @@ from app.models.match import Match
 from app.models.user import User
 
 PASSWORD = "secret123"
-PREFIX = "/api/gameplay/triangle_occupy"
 
-# triangle_occupy 要求歌曲库 ≥ 23 首（与 test_matches 同构，保证自包含）。
-SONG_LIB = {
-    "songs": [
-        {"name": f"歌曲{i:02d}", "type": "Glitch", "level": f"{i % 10 + 6}"}
-        for i in range(1, 24)
-    ]
-}
+SAMPLE_EVENTS = [
+    {"time": "00:32", "text": "守护者占领了L2第1个格子 (8) [守卫]", "type": "occupy"},
+    {"time": "12:30", "text": "游戏结束 — 时间到，守护者获胜（积分 85:72）", "type": "victory"},
+]
 
 
 def _flip_role(username: str, role: str) -> None:
@@ -49,30 +45,18 @@ def _role_client(username: str, role: str) -> TestClient:
     return c
 
 
-@pytest.fixture(autouse=True)
-def _clean_session_state():
-    """清除跨测试残留的插件内存会话与活控制器（与 test_ws 同理由）。"""
-    import app.plugins.routes as plugin_routes
-    import app.plugins.triangle_occupy.plugin as tri_plugin
-
-    plugin_routes._sessions.clear()
-    tri_plugin._CONTROLLERS.clear()
-    yield
-    plugin_routes._sessions.clear()
-    tri_plugin._CONTROLLERS.clear()
-
-
 @pytest.fixture()
 def env() -> dict:
     """Fresh DB：指派比赛（assigned 裁判在 referee_ids）+ 未指派比赛（空裁判
-    组），各带一张 in_progress 对局。返回 admin/assigned/outsider 客户端与
-    两张对局的信息 (match_id, participant_a, participant_b)。"""
+    组），各带一张 in_progress 对局。返回 admin/assigned/outsider/player
+    客户端与两张对局的对局 id。"""
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     with TestClient(app):
         admin = _role_client("scope_admin", "admin")
         assigned = _role_client("scope_assigned", "referee")
         outsider = _role_client("scope_outsider", "referee")
+        player = _role_client("scope_player", "player")
         with SessionLocal() as db:
             admin_id = db.query(User).filter(User.username == "scope_admin").one().id
             assigned_id = db.query(User).filter(User.username == "scope_assigned").one().id
@@ -110,133 +94,49 @@ def env() -> dict:
             "admin": admin,
             "assigned": assigned,
             "outsider": outsider,
-            "assigned_match": (match_a_id, 101, 102),
-            "unassigned_match": (match_b_id, 201, 202),
+            "player": player,
+            "assigned_match_id": match_a_id,
+            "unassigned_match_id": match_b_id,
         }
 
 
-def _config(participants: tuple[int, int]) -> dict:
-    p_a, p_b = participants
-    return {"song_lib": SONG_LIB, "sides": {p_a: "defender", p_b: "attacker"}}
-
-
-def _create(env: dict, key: str, role: str, config: dict | None = None) -> int:
-    """以指定角色在 key 对局上创建会话，返回 session_id（断言 200）。"""
-    match_id, p_a, p_b = env[key]
-    resp = env[role].post(
-        f"{PREFIX}/session",
-        json={"match_id": match_id, "config": config if config is not None else _config((p_a, p_b))},
+def _import(client: TestClient, match_id: int) -> TestClient:
+    return client.post(
+        f"/api/matches/{match_id}/gameplay-log",
+        files={
+            "file": (
+                "events.json",
+                json.dumps(SAMPLE_EVENTS).encode("utf-8"),
+                "application/json",
+            )
+        },
     )
-    assert resp.status_code == 200, resp.text
-    return resp.json()["session_id"]
 
 
-# --------------------------------------------------------------- create_session
-
-
-def test_create_session_outsider_referee_403(env):
-    """全局 referee（不在 referee_ids）不能为他人比赛创建会话。"""
-    match_id, _, _ = env["unassigned_match"]
-    resp = env["outsider"].post(
-        f"{PREFIX}/session", json={"match_id": match_id, "config": {}}
-    )
+def test_import_outsider_referee_403(env):
+    """全局 referee（不在 referee_ids）不能为他人比赛导入日志。"""
+    resp = _import(env["outsider"], env["assigned_match_id"])
     assert resp.status_code == 403
     assert resp.json()["detail"] == "非本场比赛裁判"
 
 
-def test_create_session_assigned_referee_200(env):
-    sid = _create(env, "assigned_match", "assigned")
-    assert sid > 0
+def test_import_assigned_referee_200(env):
+    resp = _import(env["assigned"], env["assigned_match_id"])
+    assert resp.status_code == 200, resp.text
 
 
-def test_create_session_admin_on_unassigned_200(env):
-    sid = _create(env, "unassigned_match", "admin")
-    assert sid > 0
+def test_import_admin_on_unassigned_200(env):
+    resp = _import(env["admin"], env["unassigned_match_id"])
+    assert resp.status_code == 200, resp.text
 
 
-def test_create_session_unknown_match_404(env):
-    resp = env["outsider"].post(
-        f"{PREFIX}/session", json={"match_id": 99999, "config": {}}
-    )
+def test_import_player_forbidden_403(env):
+    resp = _import(env["player"], env["assigned_match_id"])
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "权限不足"
+
+
+def test_import_unknown_match_404(env):
+    resp = _import(env["assigned"], 99999)
     assert resp.status_code == 404
     assert resp.json()["detail"] == "对局不存在"
-
-
-# --------------------------------------------------------------- submit_action
-
-
-def test_submit_action_outsider_referee_403(env):
-    sid = _create(env, "assigned_match", "assigned")
-    _, p_a, _ = env["assigned_match"]
-    resp = env["outsider"].post(
-        f"{PREFIX}/session/{sid}/action",
-        json={"participant_id": p_a, "payload": {"action": "occupy", "cell_id": 1, "score": 90}},
-    )
-    assert resp.status_code == 403
-    assert resp.json()["detail"] == "非本场比赛裁判"
-
-
-def test_submit_action_outsider_forbidden_on_admin_created_session(env):
-    """对抗：admin 建会，未指派全局裁判事后仍不能操作该会话。"""
-    sid = _create(env, "unassigned_match", "admin")
-    _, p_a, _ = env["unassigned_match"]
-    resp = env["outsider"].post(
-        f"{PREFIX}/session/{sid}/action",
-        json={"participant_id": p_a, "payload": {"action": "occupy", "cell_id": 1, "score": 90}},
-    )
-    assert resp.status_code == 403
-    assert resp.json()["detail"] == "非本场比赛裁判"
-
-
-def test_submit_action_assigned_referee_200(env):
-    sid = _create(env, "assigned_match", "assigned")
-    _, p_a, _ = env["assigned_match"]
-    resp = env["assigned"].post(
-        f"{PREFIX}/session/{sid}/action",
-        json={"participant_id": p_a, "payload": {"action": "occupy", "cell_id": 1, "score": 90}},
-    )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["ok"] is True
-    assert resp.json()["state"]["controller_state"]["board"][1]["owner"] == "defender"
-
-
-def test_submit_action_admin_on_unassigned_200(env):
-    sid = _create(env, "unassigned_match", "admin")
-    _, p_a, _ = env["unassigned_match"]
-    resp = env["admin"].post(
-        f"{PREFIX}/session/{sid}/action",
-        json={"participant_id": p_a, "payload": {"action": "occupy", "cell_id": 1, "score": 90}},
-    )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["ok"] is True
-
-
-# ---------------------------------------------------------------- end_session
-
-
-def test_end_session_outsider_referee_403(env):
-    sid = _create(env, "assigned_match", "assigned")
-    resp = env["outsider"].post(f"{PREFIX}/session/{sid}/end")
-    assert resp.status_code == 403
-    assert resp.json()["detail"] == "非本场比赛裁判"
-
-
-def test_end_session_outsider_forbidden_on_admin_created_session(env):
-    sid = _create(env, "unassigned_match", "admin")
-    resp = env["outsider"].post(f"{PREFIX}/session/{sid}/end")
-    assert resp.status_code == 403
-    assert resp.json()["detail"] == "非本场比赛裁判"
-
-
-def test_end_session_assigned_referee_200(env):
-    sid = _create(env, "assigned_match", "assigned")
-    resp = env["assigned"].post(f"{PREFIX}/session/{sid}/end")
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["session_id"] == sid
-
-
-def test_end_session_admin_on_unassigned_200(env):
-    sid = _create(env, "unassigned_match", "admin")
-    resp = env["admin"].post(f"{PREFIX}/session/{sid}/end")
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["session_id"] == sid

@@ -35,6 +35,8 @@ class MatchOut(BaseModel):
     status: str
     result: dict | None
     result_type: str | None
+    # 导入的比赛玩法日志（demo 控制器导出，见 gameplay-log 导入端点）。
+    gameplay_log: dict | None = None
     referee_id: int | None
     scheduled_at: datetime | None
     created_at: datetime

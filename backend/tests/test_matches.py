@@ -160,18 +160,16 @@ def test_full_lifecycle_start_result_finish(admin_client):
     first = matches[0]
     assert first["status"] == "pending"
 
-    # Referee starts the match -> GameSession created.
+    # Referee starts the match -> in_progress (no gameplay session created).
     _as_user(admin_client, referee_token)
     resp = admin_client.post(f"/api/matches/{first['id']}/start", json={})
     assert resp.status_code == 200, resp.text
-    assert resp.json()["session_id"] is not None
     assert resp.json()["status"] == "in_progress"
 
-    # Detail shows the session state.
+    # Detail shows the match is live; no GameSession is attached anymore.
     detail = admin_client.get(f"/api/matches/{first['id']}")
     assert detail.status_code == 200
-    assert detail.json()["session"]["plugin_name"] == "triangle_occupy"
-    assert detail.json()["session"]["state"] is not None
+    assert detail.json()["session"] is None
     assert detail.json()["match"]["status"] == "in_progress"
     assert detail.json()["match"]["referee_id"] == referee_id
 
@@ -284,7 +282,53 @@ def test_result_for_pending_match_returns_400(admin_client):
         f"/api/matches/{match['id']}/result", json={"winner": match["participant_a"]}
     )
     assert resp.status_code == 400
-    assert resp.json()["detail"] == "对局未进行中"
+    assert resp.json()["detail"] == "对局未进行中或已结束"
+
+
+def test_finished_match_can_rerecord_result(admin_client):
+    """比赛结束后裁判仍可人工修改结果（用户需求：导入日志后可调整）。"""
+    admin_token = admin_client.cookies.get("token")
+    referee_id, referee_token = _make_referee(admin_client, admin_token)
+    comp_id = _create_ok(admin_client, referee_ids=[referee_id])
+    assert _transition(admin_client, comp_id, "registration").status_code == 200
+    _seed_players_and_approve(admin_client, admin_token, comp_id, 4)
+    assert _transition(admin_client, comp_id, "ongoing").status_code == 200
+
+    match = _get_matches(admin_client, comp_id)[0]
+    _as_user(admin_client, referee_token)
+    # 首次记分
+    assert (
+        admin_client.post(
+            f"/api/matches/{match['id']}/start", json={}
+        ).status_code
+        == 200
+    )
+    resp = admin_client.post(
+        f"/api/matches/{match['id']}/result",
+        json={
+            "winner": match["participant_a"],
+            "is_draw": False,
+            "score_a": 10,
+            "score_b": 5,
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "finished"
+
+    # 重新记分（修改结果）
+    resp2 = admin_client.post(
+        f"/api/matches/{match['id']}/result",
+        json={
+            "winner": match["participant_b"],
+            "is_draw": False,
+            "score_a": 3,
+            "score_b": 7,
+        },
+    )
+    assert resp2.status_code == 200
+    assert resp2.json()["result"]["winner"] == match["participant_b"]
+    assert resp2.json()["result"]["score_a"] == 3
+    assert resp2.json()["result"]["score_b"] == 7
 
 
 def test_list_matches_unauthenticated_returns_401(client):
@@ -355,8 +399,7 @@ def test_single_elim_bye_auto_finishes_on_start(admin_client):
     bye = bye_matches[0]
     resp = admin_client.post(f"/api/matches/{bye['id']}/start", json={})
     assert resp.status_code == 200, resp.text
-    # Bye auto-finishes: no session, match already finished as a win.
-    assert resp.json()["session_id"] is None
+    # Bye auto-finishes: no gameplay session, match already finished as a win.
     assert resp.json()["status"] == "finished"
     detail = admin_client.get(f"/api/matches/{bye['id']}").json()
     assert detail["match"]["status"] == "finished"
@@ -403,7 +446,7 @@ def test_single_elim_winner_record_advances_engine(admin_client):
     )
     resp = admin_client.post(f"/api/matches/{round2['id']}/start", json={})
     assert resp.status_code == 200, resp.text
-    assert resp.json()["session_id"] is not None
+    assert resp.json()["status"] == "in_progress"
 
 
 def test_single_elim_later_round_start_write_back_participants(admin_client):
@@ -437,10 +480,10 @@ def test_single_elim_later_round_start_write_back_participants(admin_client):
     assert detail["match"]["participant_b"] is None
     assert detail["match"]["gameplay_plugin"] == "triangle_occupy"
 
-    # 开赛：引擎解析出真实参赛者并回写落库。
+    # 开赛：引擎解析出真实参赛者并回写落库（不再创建玩法会话）。
     resp = admin_client.post(f"/api/matches/{round2['id']}/start", json={})
     assert resp.status_code == 200, resp.text
-    assert resp.json()["session_id"] is not None
+    assert resp.json()["status"] == "in_progress"
 
     # 用确定性重建引擎验证回写值与引擎解析结果一致（防 stale_state）。
     with SessionLocal() as db:

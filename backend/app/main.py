@@ -31,22 +31,24 @@ from app.api.ws import router as ws_router
 from app.core.csrf import CSRFMiddleware
 from app.core.ratelimit import limiter
 from app.db import Base, engine
-from app.plugins.registry import register_default_plugins
-from app.plugins.routes import mount_gameplay_routes
 
 
 def _ensure_schema_upgrades() -> None:
-    """轻量 schema 升级（无 alembic）：给旧库 users 表补 nickname 列（幂等）。
+    """轻量 schema 升级（无 alembic）：给旧库补列（幂等）。
 
     SQLite 的 ``create_all`` 不会为已存在的表补列；新库/测试库由
     create_all 建表时已含该列，PRAGMA 检测到后直接跳过。PRAGMA table_info
-    返回行的 ``name`` 字段在下标 1。
+    返回行的 ``name`` 字段在下标 1。目前升级项：
+    - ``users.nickname``（历史遗留）
+    - ``matches.gameplay_log``（玩法日志导入字段）
     """
     with engine.connect() as conn:
-        rows = conn.execute(text("PRAGMA table_info(users)")).fetchall()
-        if not rows or any(row[1] == "nickname" for row in rows):
-            return
-        conn.execute(text("ALTER TABLE users ADD COLUMN nickname VARCHAR(50)"))
+        users = conn.execute(text("PRAGMA table_info(users)")).fetchall()
+        if users and not any(row[1] == "nickname" for row in users):
+            conn.execute(text("ALTER TABLE users ADD COLUMN nickname VARCHAR(50)"))
+        matches = conn.execute(text("PRAGMA table_info(matches)")).fetchall()
+        if matches and not any(row[1] == "gameplay_log" for row in matches):
+            conn.execute(text("ALTER TABLE matches ADD COLUMN gameplay_log JSON"))
         conn.commit()
 
 
@@ -57,13 +59,11 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     # 旧库 schema 升级（create_all 只建新表，不补已存在表的列）。
     _ensure_schema_upgrades()
-    # 玩法插件（todo 12）：扫描注册 plugins/ 下的插件并自动挂载
-    # /api/gameplay/<name>/* 路由（register_default_plugins 幂等）。
-    register_default_plugins()
-    # 摘除上一轮 lifespan 追加的 API 兜底（幂等重入），保证它始终排在全部
-    # 玩法路由之后 —— 兜底匹配 /api/* 全路径，会遮蔽其后注册的任何路由。
+    # 玩法插件已从对局流程中解耦（对局由裁判手工管理，不再挂载玩法路由）。
+    # 插件目录保留作参考/未来使用，但不再 register + mount。
+    # 摘除上一轮 lifespan 追加的 API 兜底（幂等重入），保证兜底始终排在全部
+    # 真实 API 路由之后 —— 兜底匹配 /api/* 全路径，会遮蔽其后注册的任何路由。
     _drop_tail_routes(app)
-    mount_gameplay_routes(app)
     # 未匹配 /api/* 的 JSON 404 兜底（避免落入前端托管得到 index.html/405）。
     app.include_router(_api_fallback_router)
     # 前端静态托管：FastAPI 0.141 原生 frontend（低优先级路由 —— 全部普通
@@ -114,7 +114,7 @@ app.include_router(rankings_router)
 app.include_router(ws_router)
 
 # 静态托管目录：frontend/dist（todo 4 与 Vite 默认构建产物对齐）。
-# 托管本身不用 Mount("/")：lifespan 阶段才 include 的 /api/gameplay/* 玩法路由
+# 托管本身不用 Mount("/")：lifespan 阶段才 include 的 API 兜底路由
 # 会排在 Mount 之后被遮蔽（FastAPI 0.141 _IncludedRouter 按注册顺序匹配）。
 # 改用原生 app.frontend()（低优先级路由，全部普通路由之后匹配），在 lifespan
 # 内注册（见 lifespan），既无遮蔽问题，也支持 SPA 深链回退 index.html。
@@ -138,9 +138,8 @@ def _drop_tail_routes(app: FastAPI) -> None:
     """移除上一轮 lifespan 追加的 API 兜底（幂等重入清理）。
 
     /api/* 兜底路由会遮蔽其后注册的任何路由（FastAPI 0.141 的 _IncludedRouter
-    按注册顺序匹配）；玩法路由可能在后续 lifespan 才挂载（如测试的 fake 插件
-    在更晚注册）。因此每次进入 lifespan 都先把兜底从路由表摘除，待玩法路由
-    挂载完再追加到末尾，保证顺序始终是 [API 路由, 玩法路由, API 兜底]。
+    按注册顺序匹配）。每次进入 lifespan 都先把兜底从路由表摘除，待真实 API
+    路由挂载完再追加到末尾，保证顺序始终是 [API 路由, API 兜底]。
     """
     app.router.routes[:] = [
         r

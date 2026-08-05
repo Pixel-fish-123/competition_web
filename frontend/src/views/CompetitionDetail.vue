@@ -234,13 +234,22 @@ const registering = ref(false)
 const withdrawing = ref(false)
 const reviewingId = ref<number | null>(null)
 
+// 是否已报名：个人报名匹配 user_id；队伍报名匹配 team_id（报名行存队长
+// user_id，非队长成员需靠 team_id 判断）。rejected 不算已报名。
 const registered = computed(() =>
-  registrations.value.some((r) => r.user_id === auth.user?.id)
+  registrations.value.some(
+    (r) =>
+      r.status !== 'rejected' &&
+      (r.user_id === auth.user?.id ||
+        (r.team_id !== null && r.team_id === myTeam.value?.id)),
+  )
 )
+// 是否满员：只计 pending + approved（与后端 _approved_count 一致），rejected 不占名额。
 const isFull = computed(
   () =>
     competition.value !== null &&
-    registrations.value.length >= competition.value.max_participants
+    registrations.value.filter((r) => r.status === 'pending' || r.status === 'approved')
+      .length >= competition.value.max_participants,
 )
 
 const STATUS_LABELS: Record<string, string> = {

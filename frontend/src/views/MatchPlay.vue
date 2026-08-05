@@ -235,7 +235,6 @@ interface MatchInfo {
 
 interface MatchDetailResp {
   match: MatchInfo
-  session: { id: number; state: Record<string, unknown> | null } | null
 }
 
 const route = useRoute()

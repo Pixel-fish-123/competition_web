@@ -320,6 +320,92 @@ def test_finished_match_can_rerecord_result(admin_client):
     assert resp2.json()["result"]["score_b"] == 7
 
 
+# ------------------------------------------------- randomize sides (issue 2)
+
+
+def _pending_two_player_match(admin_client):
+    """2 名选手 swiss -> 1 场真实 pending 对局。返回 (match_id, referee_token)。"""
+    admin_token = admin_client.cookies.get("token")
+    referee_id, referee_token = _make_referee(admin_client, admin_token)
+    comp_id = _create_ok(admin_client, referee_ids=[referee_id])
+    assert _transition(admin_client, comp_id, "registration").status_code == 200
+    _seed_players_and_approve(admin_client, admin_token, comp_id, 2)
+    assert _transition(admin_client, comp_id, "ongoing").status_code == 200
+    match = _get_matches(admin_client, comp_id)[0]
+    assert match["status"] == "pending"
+    assert match["participant_b"] is not None
+    return match["id"], match["participant_a"], match["participant_b"], referee_token
+
+
+def test_randomize_sides_keeps_pair_and_swaps_sometimes(admin_client):
+    match_id, orig_a, orig_b, referee_token = _pending_two_player_match(admin_client)
+    _as_user(admin_client, referee_token)
+
+    swapped_any = False
+    for _ in range(8):
+        resp = admin_client.post(f"/api/matches/{match_id}/randomize-sides", json={})
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        # 双方 id 不变，只是顺序可能交换。
+        assert {data["participant_a"], data["participant_b"]} == {orig_a, orig_b}
+        assert data["participant_a"] != data["participant_b"]
+        if (data["participant_a"], data["participant_b"]) != (orig_a, orig_b):
+            swapped_any = True
+            break
+    assert swapped_any, "8 次随机选边应至少出现一次顺序交换（1/2^8 概率极小）"
+
+
+def test_randomize_sides_rejected_when_started(admin_client):
+    match_id, _, _, referee_token = _pending_two_player_match(admin_client)
+    _as_user(admin_client, referee_token)
+    assert admin_client.post(f"/api/matches/{match_id}/start", json={}).status_code == 200
+
+    resp = admin_client.post(f"/api/matches/{match_id}/randomize-sides", json={})
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "仅未开始的比赛可以进行随机选边"
+
+
+def test_randomize_sides_requires_assigned_referee(admin_client):
+    admin_token = admin_client.cookies.get("token")
+    referee_id, _ = _make_referee(admin_client, admin_token, username="referee_a")
+    _, other_referee_token = _make_referee(
+        admin_client, admin_token, username="referee_b", email="referee_b@example.com"
+    )
+    comp_id = _create_ok(admin_client, referee_ids=[referee_id])
+    assert _transition(admin_client, comp_id, "registration").status_code == 200
+    _seed_players_and_approve(admin_client, admin_token, comp_id, 2)
+    assert _transition(admin_client, comp_id, "ongoing").status_code == 200
+    match_id = _get_matches(admin_client, comp_id)[0]["id"]
+
+    _as_user(admin_client, other_referee_token)
+    resp = admin_client.post(f"/api/matches/{match_id}/randomize-sides", json={})
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "非本场比赛裁判"
+
+
+def test_randomize_sides_on_bye_match_returns_400(admin_client):
+    """单败轮空对局（participant_b=None）不可随机选边。"""
+    admin_token = admin_client.cookies.get("token")
+    referee_id, referee_token = _make_referee(admin_client, admin_token)
+    comp_id = _create_ok(
+        admin_client,
+        tournament_format="single_elim",
+        format_config={},
+        max_participants=3,
+        referee_ids=[referee_id],
+    )
+    assert _transition(admin_client, comp_id, "registration").status_code == 200
+    _seed_players_and_approve(admin_client, admin_token, comp_id, 3)
+    assert _transition(admin_client, comp_id, "ongoing").status_code == 200
+
+    matches = _get_matches(admin_client, comp_id)
+    bye = next(m for m in matches if m["participant_b"] is None)
+    _as_user(admin_client, referee_token)
+    resp = admin_client.post(f"/api/matches/{bye['id']}/randomize-sides", json={})
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "对局双方尚未确定，无法随机选边"
+
+
 def test_result_lock_prevents_rerecord(admin_client):
     """issue 14：保存结果（lock=true）后结果锁定，任何再次 /result 均 400。"""
     admin_token = admin_client.cookies.get("token")

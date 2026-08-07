@@ -12,4 +12,5 @@ dist/
 .opencode/
 .playwright-mcp/
 *.log
+backend/uploads/
 

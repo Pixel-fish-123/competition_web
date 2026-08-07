@@ -32,6 +32,6 @@ onMounted(() => {
 }
 .app-main {
   flex: 1;
-  padding: 24px;
+  min-width: 0;
 }
 </style>

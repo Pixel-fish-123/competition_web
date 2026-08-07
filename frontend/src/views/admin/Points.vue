@@ -3,7 +3,7 @@
     <h2>积分管理</h2>
 
     <el-card class="grant-card" shadow="never">
-      <template #header>发放积分</template>
+      <template #header>调整积分</template>
       <el-form label-width="90px" inline>
         <el-form-item label="用户">
           <el-select
@@ -20,14 +20,23 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="分值">
-          <el-input-number v-model="grant.amount" :min="1" :step="1" />
+        <el-form-item label="积分变动">
+          <el-input-number
+            v-model="grant.amount"
+            :min="-999999"
+            :max="999999"
+            :step="1"
+            controls-position="right"
+          />
+          <span class="amount-hint">正数增加，负数扣除</span>
         </el-form-item>
         <el-form-item label="原因">
-          <el-input v-model="grant.reason" placeholder="发放原因" style="width: 200px" />
+          <el-input v-model="grant.reason" placeholder="调整原因" style="width: 200px" />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" :loading="granting" @click="doGrant">发放</el-button>
+          <el-button type="primary" :loading="granting" @click="doGrant">
+            {{ grant.amount < 0 ? '扣除' : '发放' }}
+          </el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -101,6 +110,10 @@ async function doGrant() {
     ElMessage.warning('请选择用户')
     return
   }
+  if (grant.amount === 0) {
+    ElMessage.warning('积分变动不能为 0')
+    return
+  }
   if (grant.reason.trim().length < 2) {
     ElMessage.warning('原因至少 2 个字符')
     return
@@ -113,7 +126,7 @@ async function doGrant() {
       kind: grant.kind,
       reason: grant.reason.trim(),
     })
-    ElMessage.success('积分已发放')
+    ElMessage.success(grant.amount < 0 ? '积分已扣除' : '积分已发放')
     grant.reason = ''
     loadLeaderboard()
   } catch (e: any) {
@@ -135,6 +148,11 @@ onMounted(() => {
 }
 .grant-card {
   margin-bottom: 16px;
+}
+.amount-hint {
+  margin-left: 8px;
+  color: #909399;
+  font-size: 12px;
 }
 .card-head {
   display: flex;

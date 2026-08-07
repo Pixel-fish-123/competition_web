@@ -22,7 +22,11 @@ FastAPI 路由层：11 个模块，全部端点在此声明，权限/审计/限�
 | competitions | POST /api/competitions/{id}/status | require_admin | 状态机 TRANSITIONS 表；进 ongoing 自动排表；finished 守卫未完成对局，`force:true` 强制结束（未完成对局置 result_type=abandoned，不参与排名，issue 8）；积分不自动结算 |
 | matches | GET /api/competitions/{cid}/matches, /api/matches/{id} | get_current_user | 列表按 round_id,id 排序 |
 | matches | POST /api/matches/{id}/start, /result | require_referee + 本场 referee_ids | 轮空自动完结；`result` 带 `lock:true` 保存并锁定（锁定后 400 拒绝再改，issue 14）；写 `match_start/match_result` 审计 |
+| matches | POST /api/matches/{id}/randomize-sides | require_referee + 本场 referee_ids | 开赛前随机选边（issue 2）：等概率交换 participant_a/b；仅 pending 且双方已定对局；写 `match_randomize_sides` 审计 |
 | matches | POST /api/matches/{id}/gameplay-log | require_referee + 本场 referee_ids | 导入 demo 玩法日志（JSON/CSV）；?sync=true 预填 result；写 `match_gameplay_log_import` 审计 |
+| announcements | GET /api/announcements(/{id}) | 公开 | 公告列表（时间倒序）/ 详情（含附件元数据） |
+| announcements | GET /api/announcements/files/{stored_name} | get_current_user | 附件下载（uuid 磁盘名定位，防路径穿越） |
+| announcements | POST/DELETE /api/admin/announcements | require_admin | multipart 发布（title/body/files[]，pdf/word/zip ≤50MB）；删除连磁盘文件；写审计 |
 | points | GET /api/points/me, /leaderboard | get_current_user | 流水最新在前；leaderboard 按 kind 过滤 |
 | points | POST /api/admin/points | require_admin | 积分唯一来源（kind=activity/manual，仅 admin 手动发放）；写 `points_grant` 审计 |
 | rankings | GET /api/rankings/competition/{id}, /global | get_current_user | 场次榜=引擎 standings 重建+回放（含 wins/losses/draws/points，issue 11）；global 复用 points leaderboard |
@@ -46,4 +50,5 @@ FastAPI 路由层：11 个模块，全部端点在此声明，权限/审计/限�
 - 状态机 `finished` 是终态：进 finished 前守卫未完成对局（400）；`force:true` 跳过守卫，未完成对局标记为作废（`result_type="abandoned"`、result=None）—— `_replay_finished` 对无 result 的对局静默跳过，不参与排名。
 - **阵营约定（用户确认）**：守护者=defender=蓝方=participant_b，掠夺者=attacker=红方=participant_a；页面统一标注「掠夺者/守护者」。gameplay-log 判定解析 demo「游戏结束 - 守护者获胜 (守85 : 掠72)」system 事件与「顶端直胜」victory 事件（详见 matches.py `_extract_scores_and_winner`）。
 - gameplay-log 导入端点：`require_referee` + 比赛级 `referee_ids` 校验（admin 旁路）；`?sync=true` 预填 `match.result`（score_a=掠夺者分、score_b=守护者分），不结束对局、不触碰引擎；最终结果由裁判「保存结果」（POST /result + lock=true）落库并锁定。
+- **随机选边一致性**：randomize-sides 交换 DB 行 participant_a/b，但引擎 MatchPlan 顺序排表时固定 —— 记分/回放必须经 `match_service._align_scores_to_engine` 把 score_a/b 归位到引擎坐标系，否则净胜分归属错乱（winner 是 id 无需对齐）。
 - admin_users 最后管理员保护：仅当 `user.id==current_user.id` 且降级时检查 admin 总数==1；删除用户保护：不能删自己/最后一个 admin/创建过比赛的用户。

@@ -317,6 +317,31 @@ def get_match_detail(
     return MatchDetailOut(match=_match_out(db, match))
 
 
+@router.post("/api/matches/{match_id}/randomize-sides", response_model=MatchOut)
+def randomize_sides(
+    match_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    staff: User = Depends(require_referee),
+):
+    """裁判开赛前随机选边（issue 2）：等概率交换掠夺者/守护者双方阵营。
+
+    仅对双方已确定且未开始的对局生效；引擎净胜分归属由
+    match_service._align_scores_to_engine 对齐保证。
+    """
+    result, swapped = match_service.randomize_sides(db, match_id, staff)
+    ip, user_agent = _request_meta(request)
+    log_audit(
+        db,
+        staff.id,
+        "match_randomize_sides",
+        ip,
+        user_agent,
+        {"match_id": match_id, "referee": staff.username, "swapped": swapped},
+    )
+    return _match_out(db, result)
+
+
 @router.post("/api/matches/{match_id}/start")
 def start_match(
     match_id: int,

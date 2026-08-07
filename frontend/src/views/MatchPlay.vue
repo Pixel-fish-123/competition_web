@@ -26,6 +26,9 @@
       </div>
 
       <div v-if="isRefereeOrAdmin" class="match-play__action">
+        <el-button size="large" :loading="randomizingSides" @click="onRandomizeSides">
+          随机选边
+        </el-button>
         <el-button type="primary" size="large" :loading="starting" @click="onStartMatch">
           开始对局
         </el-button>
@@ -311,6 +314,7 @@ const matchId = computed(() => Number(route.params.mid))
 
 const match = ref<MatchInfo | null>(null)
 const starting = ref(false)
+const randomizingSides = ref(false)
 const submittingResult = ref(false)
 const importing = ref(false)
 const importSuccess = ref(false)
@@ -479,6 +483,20 @@ async function loadMatch(): Promise<void> {
     match.value = detail.match
   } catch {
     ElMessage.error('加载对局信息失败')
+  }
+}
+
+async function onRandomizeSides(): Promise<void> {
+  randomizingSides.value = true
+  try {
+    await http.post(`/matches/${matchId.value}/randomize-sides`, {})
+    ElMessage.success('已随机选边（掠夺者/守护者可能已对调）')
+    await loadMatch()
+  } catch (e: unknown) {
+    const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    ElMessage.error(detail || '随机选边失败')
+  } finally {
+    randomizingSides.value = false
   }
 }
 

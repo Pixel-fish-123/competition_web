@@ -1,7 +1,7 @@
 # TESTS — pytest 测试套件
 
 ## OVERVIEW
-后端 pytest 230 个测试全绿（数量随用例增减浮动，以 `pytest tests -q` 实际输出为准）；前端**无**测试（靠 vue-tsc + build）。conftest 三层隔离保证测试互不污染、不碰真实开发库。
+后端 pytest 241 个测试全绿（数量随用例增减浮动，以 `pytest tests -q` 实际输出为准）；前端**无**测试（靠 vue-tsc + build）。conftest 三层隔离保证测试互不污染、不碰真实开发库。
 
 ## ISOLATION（三层机制，重点）
 1. **进程级**：conftest 在导入任何 app 模块**之前**把 `DATABASE_URL` 指向 `tempfile` 下 `competition_test_{PID}.db`（文件名含 PID，并发 pytest 进程互不干扰），并设 `DB_PATH`。测试永不触碰 `backend/competition.db`。
@@ -21,7 +21,8 @@
 
 ## KEY AREAS（本轮新增/改动）
 - `test_competitions.py`：任意状态可删（issue 1）、force-finish 作废对局（issue 8）、无 points_rule/gameplay_plugin/song_lib 字段。
-- `test_matches.py`：`result_locked` 锁定后再记分 400（issue 14）。
+- `test_matches.py`：`result_locked` 锁定后再记分 400（issue 14）；`randomize-sides` 随机选边（issue 2，含 403/400 边界、轮空对局拒绝、顺序可交换性）。
+- `test_announcements.py`：公告发布/列表/详情/附件下载/删除（上传目录 monkeypatch 到 tmp_path，issue 4）。
 - `test_gameplay_log.py`：demo 真实导出格式判定（「游戏结束 - 守护者获胜 (守85 : 掠72)」system 事件 + 顶端直胜 victory 事件；守护者=participant_b，掠夺者=participant_a）。
 - `test_admin_users_crud.py`：删除未完结对局选手 → 对手获胜（issue 3）；无封禁 status 选项（issue 4）。
 - `test_rankings.py` / `test_swiss.py`：standings 含 wins/losses/draws/points（issue 9/11）；swiss 默认轮数 `ceil(log2 n)+1`。

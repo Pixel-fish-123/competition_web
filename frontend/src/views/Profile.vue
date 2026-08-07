@@ -40,6 +40,15 @@
             >
               添加成员
             </el-button>
+            <el-button
+              v-if="isCaptain"
+              type="danger"
+              size="small"
+              :loading="disbanding"
+              @click="disbandTeam"
+            >
+              解散队伍
+            </el-button>
           </div>
           <div class="team-card__meta">
             <span>成员数：{{ myTeam.members.length }}</span>
@@ -231,6 +240,7 @@ const savingNickname = ref(false)
 const inviteDialogVisible = ref(false)
 const inviteUsername = ref('')
 const inviting = ref(false)
+const disbanding = ref(false)
 
 const isCaptain = computed(
   () => myTeam.value?.captain_id === auth.user?.id,
@@ -399,6 +409,30 @@ async function removeMember(member: TeamMember) {
     await loadMyTeam()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '移除成员失败')
+  }
+}
+
+async function disbandTeam() {
+  if (!myTeam.value) return
+  try {
+    await ElMessageBox.confirm(
+      `确定解散队伍「${myTeam.value.name}」吗？解散后全部成员将退出，且不可恢复。`,
+      '解散队伍',
+      { type: 'warning', confirmButtonText: '解散', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  disbanding.value = true
+  try {
+    await http.delete(`/teams/${myTeam.value.id}`)
+    ElMessage.success('队伍已解散')
+    myTeam.value = null
+    await loadMyTeam()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '解散队伍失败')
+  } finally {
+    disbanding.value = false
   }
 }
 

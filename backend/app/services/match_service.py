@@ -20,6 +20,7 @@ gameplay-log 导入端点把 demo 控制器导出的玩法日志存入 ``match.g
 
 from __future__ import annotations
 
+import random
 from datetime import datetime
 
 from fastapi import HTTPException
@@ -100,12 +101,7 @@ def _replay_finished(
         try:
             engine.record_result(
                 match.engine_match_id,
-                MatchResult(
-                    winner=result.get("winner"),
-                    is_draw=bool(result.get("is_draw", False)),
-                    score_a=result.get("score_a", 0.0),
-                    score_b=result.get("score_b", 0.0),
-                ),
+                _align_scores_to_engine(match, engine, result),
             )
         except ValueError:
             # 数据不一致（不应发生）：跳过该局，避免阻塞其它对局。
@@ -127,6 +123,29 @@ def _require_assigned_referee(competition: Competition, referee: User) -> None:
         return
     if referee.id not in (competition.referee_ids or []):
         raise HTTPException(status_code=403, detail="非本场比赛裁判")
+
+
+def _align_scores_to_engine(
+    match: Match, engine: TournamentEngine, result: dict
+) -> MatchResult:
+    """把 DB 行保存的结果按引擎 schedule 的 participant 顺序对齐。
+
+    随机选边（issue 2）会交换 Match.participant_a/b，而引擎 MatchPlan 的
+    顺序在排表时固定。回放/记分时须把 score_a/score_b 归位到引擎坐标系，
+    否则净胜分（net_score）会归属错误。winner 是 participant id（全局唯一），
+    无需对齐；is_bye 行不会走到这里。
+    """
+    plan = engine._match_index.get(match.engine_match_id)
+    score_a = result.get("score_a", 0.0)
+    score_b = result.get("score_b", 0.0)
+    if plan is not None and match.participant_a != plan.participant_a:
+        score_a, score_b = score_b, score_a
+    return MatchResult(
+        winner=result.get("winner"),
+        is_draw=bool(result.get("is_draw", False)),
+        score_a=score_a,
+        score_b=score_b,
+    )
 
 
 # ---------------------------------------------------------------- schedule
@@ -225,6 +244,43 @@ def build_schedule_for_competition(
 
 
 # ------------------------------------------------------------------- start
+
+
+def randomize_sides(
+    db: Session,
+    match_id: int,
+    referee: User,
+) -> tuple[Match, bool]:
+    """开赛前随机选边（issue 2）：等概率交换对局双方的阵营。
+
+    掠夺者=participant_a、守护者=participant_b。仅对双方已确定（均非 None）
+    且未开始（pending）的对局生效；交换仅影响展示与引擎分数对齐
+    （``_align_scores_to_engine`` 保证净胜分归属正确）。返回
+    (match, swapped) —— swapped 表示本次是否实际交换了顺序。
+    """
+    match = db.get(Match, match_id)
+    if match is None:
+        raise HTTPException(status_code=404, detail="对局不存在")
+    competition = db.get(Competition, match.competition_id)
+    if competition is None:
+        raise HTTPException(status_code=404, detail="比赛不存在")
+
+    _require_assigned_referee(competition, referee)
+
+    if match.participant_a is None or match.participant_b is None:
+        raise HTTPException(status_code=400, detail="对局双方尚未确定，无法随机选边")
+    if match.status != "pending":
+        raise HTTPException(status_code=400, detail="仅未开始的比赛可以进行随机选边")
+
+    swapped = random.random() < 0.5
+    if swapped:
+        match.participant_a, match.participant_b = (
+            match.participant_b,
+            match.participant_a,
+        )
+        db.commit()
+        db.refresh(match)
+    return match, swapped
 
 
 def start_match(
@@ -338,11 +394,15 @@ def record_match_result(
     # finished 重新记分时跳过当前 match 的旧结果回放，避免引擎拒绝重复记录。
     _replay_finished(db, competition, engine, skip_match_id=match.id if is_rerecord else None)
 
-    engine_result = MatchResult(
-        winner=payload.winner,
-        is_draw=payload.is_draw,
-        score_a=payload.score_a,
-        score_b=payload.score_b,
+    engine_result = _align_scores_to_engine(
+        match,
+        engine,
+        {
+            "winner": payload.winner,
+            "is_draw": payload.is_draw,
+            "score_a": payload.score_a,
+            "score_b": payload.score_b,
+        },
     )
     try:
         engine.record_result(match.engine_match_id, engine_result)

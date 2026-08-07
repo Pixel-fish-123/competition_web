@@ -14,12 +14,13 @@
 4. **个人 / 队伍双轨参赛**：参赛单位模型为「个人 = 1 人队伍」，支持混合模式。
 5. **单场排名 + 奖励积分**：积分由 admin 手动发放（比赛结束不自动结算），队伍成员各得全额；单一积分排行榜（按总积分排名）。
 6. **管理后台**：选手管理（可随时删除，未完结对局判对手获胜）、权限分配（admin / referee / player 三角色 + 比赛裁判组）、活动积分发放、异常流量监控。
-7. **对局判定流程**：比赛结束后导入 demo 控制器玩法日志自动判定比分与胜者（守护者=蓝方 / 掠夺者=红方），结果有误可人工微调，确认后「保存结果」锁定不可更改。
+7. **对局判定流程**：比赛结束后导入 demo 控制器玩法日志自动判定比分与胜者（守护者=蓝方 / 掠夺者=红方），结果有误可人工微调，确认后「保存结果」锁定不可更改；开赛前支持**随机选边**。
 8. **异常流量检测**：登录爆破防护（5 次失败锁定 15 分钟）、API 全局限流（slowapi，429）、审计日志 + 后台流量监控页。
 9. **WebSocket 对局实时推送**：Cookie 鉴权 + 订阅白名单（参赛双方 / 裁判 / admin）+ 每连接 ≤10 msg/s 频率限制。
 10. **对局操作权限**：仅 referee / admin 可开始/结束对局并录入结果，选手只读观看。
 11. **比赛生命周期**：任意状态可直接删除（级联清理赛程/报名/积分）；无人参赛时支持强制结束（未完成对局作废，不参与排名）。
-12. **种子数据脚本**：幂等演示数据。
+12. **公告系统**：抬头导航公告入口，按时间查看不同公告；支持上传 pdf / word / zip 附件下载。
+13. **种子数据脚本**：幂等演示数据。
 
 ## 技术栈
 
@@ -27,7 +28,7 @@
 | --- | --- |
 | 后端 | Python 3.14 + FastAPI + Uvicorn + SQLAlchemy 2.0 + SQLite (WAL) + PyJWT + bcrypt + slowapi |
 | 前端 | Vue 3 + Vite + TypeScript + Pinia + Vue Router + Element Plus + axios |
-| 测试 | pytest + httpx（后端 230 个测试全绿）；前端 vue-tsc + vite build |
+| 测试 | pytest + httpx（后端 241 个测试全绿）；前端 vue-tsc + vite build |
 
 ## 环境要求
 
@@ -122,7 +123,8 @@ competition_web/
 | --- | --- |
 | `/api/auth` | 注册 / 登录 / 登出 |
 | `/api/competitions` | 比赛展示与报名（任意状态可删除；status 支持 force 强制结束） |
-| `/api/matches` | 对局查询与操作（start/result 记分并锁定；gameplay-log 导入判定） |
+| `/api/matches` | 对局查询与操作（start/result 记分并锁定；randomize-sides 随机选边；gameplay-log 导入判定） |
+| `/api/announcements` | 公告列表/详情/附件下载（admin 发布/删除） |
 | `/api/points` | 积分查询（仅 admin 手动发放） |
 | `/api/rankings` | 排行榜（场次排名含胜/负/平 / 全局积分榜） |
 | `/api/admin/*` | 管理后台接口 |

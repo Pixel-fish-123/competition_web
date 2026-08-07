@@ -150,7 +150,10 @@
               {{ row.participant_name || `参赛者#${row.participant_id}` }}
             </template>
           </el-table-column>
-          <el-table-column prop="wins" label="胜场" width="90" />
+          <el-table-column prop="wins" label="胜场" width="80" />
+          <el-table-column prop="losses" label="败场" width="80" />
+          <el-table-column prop="draws" label="平局" width="80" />
+          <el-table-column prop="points" label="积分" width="80" />
         </el-table>
       </section>
     </template>
@@ -210,6 +213,9 @@ interface RankingRow {
   participant_id: number
   participant_name?: string
   wins: number
+  losses: number
+  draws: number
+  points: number
 }
 
 interface TeamInfo {

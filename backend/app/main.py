@@ -10,6 +10,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 # Import the ORM models so Base.metadata knows about them for create_all.
+import app.models.announcement  # noqa: F401
 import app.models.audit_log  # noqa: F401
 import app.models.competition  # noqa: F401
 import app.models.match  # noqa: F401
@@ -19,6 +20,7 @@ import app.models.team  # noqa: F401
 import app.models.user  # noqa: F401
 from app.api.admin_traffic import router as admin_traffic_router
 from app.api.admin_users import router as admin_users_router
+from app.api.announcements import router as announcements_router
 from app.api.auth import router as auth_router
 from app.api.competitions import router as competitions_router
 from app.api.health import router as health_router
@@ -114,6 +116,7 @@ app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(admin_users_router)
 app.include_router(admin_traffic_router)
+app.include_router(announcements_router)
 app.include_router(teams_router)
 app.include_router(registrations_router)
 app.include_router(competitions_router)

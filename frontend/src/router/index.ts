@@ -6,11 +6,14 @@ import CompetitionDetail from '../views/CompetitionDetail.vue'
 import Profile from '../views/Profile.vue'
 import Rankings from '../views/Rankings.vue'
 import MatchPlay from '../views/MatchPlay.vue'
+import Announcements from '../views/Announcements.vue'
+import AnnouncementDetail from '../views/AnnouncementDetail.vue'
 import AdminLayout from '../views/admin/AdminLayout.vue'
 import AdminUsers from '../views/admin/Users.vue'
 import AdminCompetitions from '../views/admin/Competitions.vue'
 import AdminPoints from '../views/admin/Points.vue'
 import AdminTraffic from '../views/admin/Traffic.vue'
+import AdminAnnouncements from '../views/admin/Announcements.vue'
 import { useAuthStore } from '../stores/auth'
 
 const router = createRouter({
@@ -22,6 +25,8 @@ const router = createRouter({
     { path: '/competitions/:cid', name: 'competition-detail', component: CompetitionDetail },
     { path: '/competitions/:cid/matches/:mid', name: 'match-play', component: MatchPlay },
     { path: '/rankings', name: 'rankings', component: Rankings },
+    { path: '/announcements', name: 'announcements', component: Announcements },
+    { path: '/announcements/:id', name: 'announcement-detail', component: AnnouncementDetail },
     {
       path: '/admin',
       component: AdminLayout,
@@ -31,6 +36,7 @@ const router = createRouter({
         { path: 'competitions', name: 'admin-competitions', component: AdminCompetitions },
         { path: 'points', name: 'admin-points', component: AdminPoints },
         { path: 'traffic', name: 'admin-traffic', component: AdminTraffic },
+        { path: 'announcements', name: 'admin-announcements', component: AdminAnnouncements },
       ],
     },
     { path: '/profile', name: 'profile', component: Profile, meta: { requiresAuth: true } },

@@ -1,20 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap');
+
 :root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  color-scheme: light dark;
-  color: #213547;
-  background-color: #ffffff;
+  font-family: 'Manrope', 'Microsoft YaHei', sans-serif;
+  color: #182330;
+  background: #f4f7f8;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --ink: #182330;
+  --ink-soft: #5f6e79;
+  --muted: #87949b;
+  --line: #d8e1e4;
+  --line-strong: #b9c9ce;
+  --paper: #ffffff;
+  --canvas: #f4f7f8;
+  --cyan: #0c94a5;
+  --cyan-dark: #087080;
+  --cyan-pale: #dff4f5;
+  --blue: #2864c7;
+  --orange: #e78a2f;
+  --orange-pale: #fff0dc;
+  --radius: 2px;
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
+html { min-width: 320px; background: var(--canvas); }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button, input, textarea, select { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+a { color: inherit; }
+#app { min-height: 100vh; }
 
-body {
-  margin: 0;
-  min-height: 100vh;
-}
+::selection { color: #fff; background: var(--cyan); }
 
-#app {
-  min-height: 100vh;
+.el-button { border-radius: var(--radius); font-weight: 700; }
+.el-button--primary { --el-button-bg-color: var(--cyan); --el-button-border-color: var(--cyan); --el-button-hover-bg-color: var(--cyan-dark); --el-button-hover-border-color: var(--cyan-dark); }
+.el-tag { border-radius: var(--radius); }
+.el-card { border-radius: var(--radius); border-color: var(--line); }
+.app-main > :not(.home-page) { padding: 40px clamp(18px, 4vw, 48px); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

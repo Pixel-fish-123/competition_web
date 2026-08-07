@@ -19,6 +19,8 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 ALLOWED_ORIGINS = {
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://cy2rookiecup.xyz",
+    "https://www.cy2rookiecup.xyz",
 }
 
 

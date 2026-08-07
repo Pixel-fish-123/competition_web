@@ -35,7 +35,7 @@
 - Python 3.14（或 3.12+）
 - Node.js ≥ 20（本机 v24）
 - npm、Git
-- 无需 Docker（部署阶段可选）
+- 本地开发无需 Docker；生产部署推荐 Docker Compose + Caddy
 
 ## 快速开始
 
@@ -85,7 +85,7 @@ npm run build
 
 ```powershell
 cd backend
-.venv\Scripts\python -m pytest tests -q    # 230 passed
+.venv\Scripts\python -m pytest tests -q    # 测试数量随用例变化
 ```
 
 ```powershell
@@ -113,7 +113,7 @@ competition_web/
 │       ├── views/         # 页面（首页/比赛详情/对局/排行榜/个人中心/登录/admin/*）
 │       ├── stores/        # Pinia
 │       └── api/           # axios
-├── docs/                  # 文档（部署手册）
+├── docs/                  # 项目、前端、后端与部署文档
 └── start.ps1              # 一键启动脚本
 ```
 
@@ -125,7 +125,7 @@ competition_web/
 | `/api/competitions` | 比赛展示与报名（任意状态可删除；status 支持 force 强制结束） |
 | `/api/matches` | 对局查询与操作（start/result 记分并锁定；randomize-sides 随机选边；gameplay-log 导入判定） |
 | `/api/announcements` | 公告列表/详情/附件下载（admin 发布/删除） |
-| `/api/points` | 积分查询（仅 admin 手动发放） |
+| `/api/points` | 积分查询（仅 admin 手动调整，支持正数发放和负数扣除） |
 | `/api/rankings` | 排行榜（场次排名含胜/负/平 / 全局积分榜） |
 | `/api/admin/*` | 管理后台接口 |
 | `/ws` | WebSocket 对局实时推送 |
@@ -139,4 +139,13 @@ competition_web/
 
 ## 部署说明
 
-当前完成本地开发与验收（M10）。部署方案见 `docs/部署手册.md`（M11 生成中）。
+推荐使用阿里云香港 ECS（2 核 / 2 GiB 也可运行当前规模）部署：
+
+- Docker 应用负责 FastAPI、Vue 构建产物和 SQLite 数据库。
+- Caddy 负责域名 HTTPS、HTTP 跳转和 WebSocket 反向代理。
+- 香港节点通常无需 ICP 备案，国内用户可直接访问。
+- SQLite 数据持久化在 `deploy/data/competition.db`，备份时必须保留 WAL 相关数据。
+
+完整的逐步部署手册见 [`docs/阿里云香港ECS部署.md`](阿里云香港ECS部署.md)。
+
+通用部署说明见 [`docs/部署手册.md`](部署手册.md)。

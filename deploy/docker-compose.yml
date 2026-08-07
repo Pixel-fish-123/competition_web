@@ -5,8 +5,8 @@
 #
 # 说明：
 #   - 单服务 app，构建上下文为仓库根目录（见 Dockerfile 注释）。
-#   - SQLite 数据库文件位于容器内 /app/backend/competition.db，
-#     通过卷挂载 ./data:/app/backend 持久化到宿主机 deploy/data/。
+#   - SQLite 数据库文件位于容器内 /app/data/competition.db，
+#     通过卷挂载 ./data:/app/data 持久化到宿主机 deploy/data/。
 #   - 部署前务必修改 SECRET_KEY（见部署手册"密钥管理"一节）。
 
 services:
@@ -23,9 +23,11 @@ services:
       # 生产密钥：务必替换为随机值，例如
       #   python -c "import secrets; print(secrets.token_hex(32))"
       SECRET_KEY: "CHANGE_ME_TO_A_RANDOM_SECRET"
-      # 数据库连接串（可选，默认 sqlite:///./competition.db 即卷内文件）
-      # DATABASE_URL: "sqlite:///./competition.db"
+      # 将数据库放在独立数据目录，避免数据卷遮住 /app/backend 中的代码。
+      DATABASE_URL: "sqlite:////app/data/competition.db"
+      DB_PATH: "/app/data/competition.db"
+      AUTH_COOKIE_SECURE: "true"
       PYTHONUNBUFFERED: "1"
     volumes:
       # 持久化 SQLite 数据库（含 -wal / -shm 伴生文件）
-      - ./data:/app/backend
+      - ./data:/app/data

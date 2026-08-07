@@ -17,6 +17,7 @@ from app.core.lockout import locked_until, record_failed_login, reset_lockout
 from app.core.ratelimit import limiter
 from app.core.rbac import get_current_user
 from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
+from app.config import settings
 from app.db import get_db
 from app.models.user import User
 from app.schemas.user import LoginRequest, RegisterRequest, UserMePatchRequest, UserOut
@@ -35,7 +36,7 @@ def _set_auth_cookie(response: Response, user_id: int, role: str) -> None:
         max_age=COOKIE_MAX_AGE,
         httponly=True,
         samesite="lax",
-        secure=False,  # dev; flip to True behind HTTPS in production
+        secure=settings.AUTH_COOKIE_SECURE,
     )
 
 

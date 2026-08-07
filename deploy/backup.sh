@@ -12,7 +12,7 @@
 #
 # 用法：
 #   ./backup.sh [数据库路径] [备份目录]
-#   默认数据库路径：../backend/competition.db（相对本脚本所在目录）
+#   默认数据库路径：../data/competition.db（相对本脚本所在目录）
 #   默认备份目录：  ./backups（相对本脚本所在目录）
 #
 # cron 示例（每天凌晨 3 点）：
@@ -25,7 +25,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # 参数解析
-DB_FILE="${1:-$SCRIPT_DIR/../backend/competition.db}"
+DB_FILE="${1:-$SCRIPT_DIR/../data/competition.db}"
 BACKUP_DIR="${2:-$SCRIPT_DIR/backups}"
 
 # 时间戳：YYYYMMDD_HHMMSS

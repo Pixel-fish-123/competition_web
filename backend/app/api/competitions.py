@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.core.rbac import require_admin
 from app.db import get_db
 from app.models.competition import Competition
-from app.models.match import GameSession, Match
+from app.models.match import Match
 from app.models.point import PointTransaction
 from app.models.registration import Registration
 from app.models.user import User
@@ -43,8 +43,6 @@ TRANSITIONS: dict[str, set[str]] = {
     "finished": set(),  # terminal
     "cancelled": set(),  # terminal
 }
-
-DELETABLE_STATUSES = ("draft", "cancelled", "finished")
 
 
 def _get_competition_or_404(db: Session, competition_id: int) -> Competition:
@@ -91,9 +89,6 @@ def create_competition(
         participant_type=payload.participant_type,
         tournament_format=payload.tournament_format,
         format_config=payload.format_config,
-        points_rule=payload.points_rule,
-        gameplay_plugin=payload.gameplay_plugin,
-        song_lib=payload.song_lib,
         referee_ids=payload.referee_ids,
         max_participants=payload.max_participants,
         status="draft",
@@ -138,7 +133,9 @@ def change_status(
 
     - 进入 ongoing：由引擎赛程生成全部 Match 行（Metis C7，非人工创建）；
       已有赛程时不重复生成。
-    - 进入 finished：存在未完成对局时拒绝（Metis V-checks）。
+    - 进入 finished：存在未完成对局时拒绝（Metis V-checks）；``force=true``
+      时强制结束（issue 8）——未完成对局标记为作废（result_type=abandoned），
+      不参与排名与引擎回放，比赛直接进入 finished。
     """
     competition = _get_competition_or_404(db, competition_id)
     if payload.status not in TRANSITIONS.get(competition.status, set()):
@@ -156,22 +153,31 @@ def change_status(
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=str(e))
     elif payload.status == "finished":
-        # 瑞士轮：先把因上一轮结果提交而应落地、却因崩溃/竞态漏物化的轮次
-        # 补进 DB，再检查未完成对局 —— 否则缺轮会导致守卫放行过早 finish。
-        match_service._advance_swiss_if_due(db, competition)
-        unfinished = (
-            db.query(Match)
-            .filter(
+        if payload.force:
+            # 强制结束：未完成对局全部作废（不参与排名，_replay_finished 对
+            # 无 result 的对局天然跳过），比赛直接 finished。
+            db.query(Match).filter(
                 Match.competition_id == competition.id,
                 Match.status != "finished",
+            ).update(
+                {"status": "finished", "result_type": "abandoned"},
+                synchronize_session=False,
             )
-            .count()
-        )
-        if unfinished:
-            raise HTTPException(status_code=400, detail="存在未完成的对局")
-        # todo 9（用户确认 ①A）：积分改为 admin 纯手动发放，进入 finished
-        # 不再自动结算（points_service.settle_competition_points 仅保留
-        # 供手动/测试调用）。
+        else:
+            # 瑞士轮：先把因上一轮结果提交而应落地、却因崩溃/竞态漏物化的轮次
+            # 补进 DB，再检查未完成对局 —— 否则缺轮会导致守卫放行过早 finish。
+            match_service._advance_swiss_if_due(db, competition)
+            unfinished = (
+                db.query(Match)
+                .filter(
+                    Match.competition_id == competition.id,
+                    Match.status != "finished",
+                )
+                .count()
+            )
+            if unfinished:
+                raise HTTPException(status_code=400, detail="存在未完成的对局")
+        # 积分纯手动：进入 finished 不再自动结算（issue 6，无结算入口）。
 
     competition.status = payload.status
     db.commit()
@@ -185,25 +191,14 @@ def delete_competition(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """Admin-only delete, allowed only for draft/cancelled/finished competitions.
+    """Admin-only delete, allowed for any competition status (issue 1).
 
     Business data is removed explicitly (SQLite FKs are metadata-only by
-    default, so no ON DELETE CASCADE fires): GameSession (via Match), Match,
-    PointTransaction and Registration. AuditLog is intentionally preserved.
+    default, so no ON DELETE CASCADE fires): Match, PointTransaction and
+    Registration. AuditLog is intentionally preserved.
     """
     competition = _get_competition_or_404(db, competition_id)
-    if competition.status not in DELETABLE_STATUSES:
-        raise HTTPException(status_code=400, detail="进行中的比赛无法删除")
-    # Cascade order matters: GameSession FK references Match, so delete
-    # sessions before their parent Match rows.
-    match_ids = [
-        m.id
-        for m in db.query(Match.id).filter(Match.competition_id == competition.id).all()
-    ]
-    if match_ids:
-        db.query(GameSession).filter(
-            GameSession.match_id.in_(match_ids)
-        ).delete(synchronize_session=False)
+    # Cascade order matters: delete Match rows (incl. legacy session history).
     db.query(Match).filter(
         Match.competition_id == competition.id
     ).delete(synchronize_session=False)

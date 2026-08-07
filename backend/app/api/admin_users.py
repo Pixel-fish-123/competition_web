@@ -15,7 +15,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.audit import log_audit
-from app.core.lockout import reset_lockout
 from app.core.ratelimit import limiter
 from app.core.rbac import require_admin
 from app.core.security import hash_password
@@ -32,7 +31,6 @@ from app.schemas.user import EMAIL_RE, UserOut, UserPatchRequest
 router = APIRouter(dependencies=[Depends(require_admin)])
 
 VALID_ROLES = {"admin", "referee", "player"}
-VALID_STATUSES = {"active", "banned"}
 
 
 class UserCreateRequest(BaseModel):
@@ -61,15 +59,6 @@ class UserCreateRequest(BaseModel):
 def list_users(request: Request, db: Session = Depends(get_db)):
     """List all users, ordered by id."""
     return db.query(User).order_by(User.id).all()
-
-
-@router.get("/api/admin/plugins")
-@limiter.limit("60/minute")
-def list_plugins(request: Request):
-    """列出已注册的玩法插件（admin only）。"""
-    from app.plugins.registry import registry
-
-    return [{"name": p.name, "version": p.version} for p in registry.all()]
 
 
 @router.post("/api/admin/users", response_model=UserOut)
@@ -126,19 +115,23 @@ def delete_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """硬删除用户（todo 7）：手工级联清理其业务数据。
+    """硬删除用户（todo 7）：未完结对局判对手胜 + 手工级联清理其业务数据。
 
     SQLite 的 FK 仅 metadata（无 ON DELETE CASCADE 触发），删除前必须按
     子行在前顺序手工清理：Registration/PointTransaction/TeamMember 删行、
     队长所属队伍先清成员再删队、AuditLog.user_id 与 Match.referee_id 置 NULL
     （保留审计追溯、避免悬空）。保护规则见下方注释。
+
+    issue 3：选手随时可删 —— 该选手的未完结对局不再阻塞删除，而是按
+    「轮空计算」直接判对手获胜（0:0，result_type=win）；对手不存在
+    （轮空行等异常）标记为作废 abandoned。引擎重建/回放会自然推进
+    （单败淘汰对手自动晋级）。
     """
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="用户不存在")
     # 保护规则（顺序）：不能删自己 -> 不能删最后一个 admin -> 不能删创建过
-    # 比赛的用户（Competition.created_by FK NOT NULL，删除会悬空）-> 不能删
-    # 有未完结对局的参赛者（避免打破赛程）。
+    # 比赛的用户（Competition.created_by FK NOT NULL，删除会悬空）。
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="不能删除自己")
     if user.role == "admin":
@@ -152,16 +145,32 @@ def delete_user(
         > 0
     ):
         raise HTTPException(status_code=400, detail="该用户创建了比赛，无法删除")
+
+    # issue 3：未完结对局按轮空计算 -> 对手直接获胜。
     unfinished = (
         db.query(Match)
         .filter(
             or_(Match.participant_a == user_id, Match.participant_b == user_id),
             Match.status != "finished",
         )
-        .count()
+        .all()
     )
-    if unfinished > 0:
-        raise HTTPException(status_code=400, detail="该用户有未完结对局")
+    for match in unfinished:
+        opponent = (
+            match.participant_b if match.participant_a == user_id else match.participant_a
+        )
+        if opponent is None:
+            match.status = "finished"
+            match.result_type = "abandoned"
+            continue
+        match.status = "finished"
+        match.result_type = "win"
+        match.result = {
+            "winner": opponent,
+            "is_draw": False,
+            "score_a": 0.0,
+            "score_b": 0.0,
+        }
 
     # 级联清理（子行在前，见函数 docstring）。
     db.query(Registration).filter(Registration.user_id == user_id).delete(
@@ -213,7 +222,7 @@ def update_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    """Partially update a user: role, status and/or password (all optional)."""
+    """Partially update a user: role and/or password (all optional)."""
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="用户不存在")
@@ -230,14 +239,6 @@ def update_user(
                 raise HTTPException(status_code=400, detail="不能降级最后一个管理员")
         user.role = payload.role
         changed.append("role")
-
-    if payload.status is not None:
-        if payload.status not in VALID_STATUSES:
-            raise HTTPException(status_code=400, detail="无效的状态")
-        user.status = payload.status
-        # Re-activating / re-setting status also clears any active lockout.
-        reset_lockout(user.username)
-        changed.append("status")
 
     if payload.password is not None:
         user.password_hash = hash_password(payload.password)

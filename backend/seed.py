@@ -17,10 +17,7 @@ Exposed as a function too::
 
 from __future__ import annotations
 
-import json
-import os
 import sys
-from pathlib import Path
 from typing import Any
 
 from app.core.security import hash_password
@@ -40,14 +37,6 @@ REFEREE_PASSWORD = "referee123"
 COMPETITION_NAME = "萌新杯·演示赛"
 COMPETITION_DESCRIPTION = "种子脚本创建的演示比赛：6 名玩家组成 2 队 + 2 名单人玩家。"
 
-# seed.py lives in backend/; the demo song library sample sits at
-# D:\myproject1\demo\test_songs.json (sibling of the repo root). Fallback to
-# a demo/ dir inside the repo itself if the external sample is absent.
-_DEFAULT_SONG_LIB_CANDIDATES = (
-    Path(__file__).resolve().parent.parent.parent / "demo" / "test_songs.json",
-    Path(__file__).resolve().parent / "demo" / "test_songs.json",
-)
-
 _DEV_PASSWORD_WARNING = """\
 ============================================================================
 警告 / WARNING: 以下默认账号密码仅限本地开发环境使用!
@@ -59,29 +48,7 @@ _DEV_PASSWORD_WARNING = """\
 """
 
 
-def _load_song_lib(song_lib: dict | None, song_lib_path: str | None) -> dict:
-    """Resolve the song library dict: explicit dict > explicit path > env > demo file."""
-    if song_lib is not None:
-        return song_lib
-    if song_lib_path is not None:
-        return json.loads(Path(song_lib_path).read_text(encoding="utf-8"))
-    env_path = os.environ.get("SONG_LIB_PATH")
-    if env_path:
-        return json.loads(Path(env_path).read_text(encoding="utf-8"))
-    for candidate in _DEFAULT_SONG_LIB_CANDIDATES:
-        if candidate.is_file():
-            return json.loads(candidate.read_text(encoding="utf-8"))
-    raise FileNotFoundError(
-        "找不到曲库文件 demo/test_songs.json；请通过 song_lib_path 或 "
-        "SONG_LIB_PATH 指定"
-    )
-
-
-def seed_all(
-    db=None,
-    song_lib: dict | None = None,
-    song_lib_path: str | None = None,
-) -> dict[str, Any]:
+def seed_all(db=None) -> dict[str, Any]:
     """Create the full demo dataset once; idempotent by admin username.
 
     - If an ``admin`` user already exists → print "已初始化，跳过", return
@@ -155,11 +122,7 @@ def seed_all(
                 name=COMPETITION_NAME,
                 description=COMPETITION_DESCRIPTION,
                 participant_type="mixed",
-                tournament_format="round_robin",
-                format_config={"group_size": 4},
-                points_rule={"1": 100, "2": 60, "3": 40, "default": 10},
-                gameplay_plugin="triangle_occupy",
-                song_lib=_load_song_lib(song_lib, song_lib_path),
+                tournament_format="swiss",
                 referee_ids=[referee.id],
                 max_participants=8,
                 status="registration",
@@ -221,7 +184,7 @@ def seed_all(
             f"  用户      : 1 admin + 1 referee + 8 players = {summary['users']}\n"
             f"  队伍      : 萌新队A / 萌新队B，各 3 人 = {summary['teams']} 队 / "
             f"{summary['team_members']} 名成员\n"
-            f"  比赛      : {COMPETITION_NAME} (round_robin + triangle_occupy)\n"
+            f"  比赛      : {COMPETITION_NAME} (swiss)\n"
             f"  报名      : 队A / 队B / player7 / player8 = {summary['registrations']} 条 (已通过)"
         )
         return summary

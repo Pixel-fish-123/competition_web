@@ -67,19 +67,45 @@ Push-Location (Join-Path $root 'backend')
 & $venvPython seed.py
 Pop-Location
 
-Write-Host ''
-Write-Host '启动后端 (http://localhost:8000) 与前端 (http://localhost:5173)...' -ForegroundColor Cyan
-Write-Host '将打开两个服务窗口, 关闭窗口即停止对应服务。' -ForegroundColor DarkGray
+# ---------- 5. 端口占用检测（issue 2：防止出现两个前端/后端进程） ----------
+function Test-PortInUse([int]$Port) {
+    $conn = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    return ($null -ne $conn)
+}
 
-Start-Process powershell -WorkingDirectory (Join-Path $root 'backend') `
-    -ArgumentList '-NoExit', '-Command', '.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000' `
-    -WindowStyle Normal
+$backendPort = 8000
+$frontendPort = 5173
 
-Start-Process powershell -WorkingDirectory (Join-Path $root 'frontend') `
-    -ArgumentList '-NoExit', '-Command', 'npm run dev' `
-    -WindowStyle Normal
+if (Test-PortInUse $backendPort) {
+    Write-Host "[warn] 端口 $backendPort 已被占用，跳过后端启动（可能已有实例在运行）" -ForegroundColor Yellow
+    $startBackend = $false
+} else {
+    $startBackend = $true
+}
 
-# 等服务起来后自动打开浏览器
+if (Test-PortInUse $frontendPort) {
+    Write-Host "[warn] 端口 $frontendPort 已被占用，跳过前端启动（可能已有实例在运行）" -ForegroundColor Yellow
+    $startFrontend = $false
+} else {
+    $startFrontend = $true
+}
+
+if (-not $startBackend -and -not $startFrontend) {
+    Write-Host '两个服务端口均被占用，无需重复启动。' -ForegroundColor Cyan
+}
+
+if ($startBackend) {
+    Start-Process powershell -WorkingDirectory (Join-Path $root 'backend') `
+        -ArgumentList '-NoExit', '-Command', '.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000' `
+        -WindowStyle Normal
+}
+
+if ($startFrontend) {
+    Start-Process powershell -WorkingDirectory (Join-Path $root 'frontend') `
+        -ArgumentList '-NoExit', '-Command', 'npm run dev' `
+        -WindowStyle Normal
+}
+
 Start-Sleep -Seconds 8
 Start-Process 'http://localhost:5173'
 

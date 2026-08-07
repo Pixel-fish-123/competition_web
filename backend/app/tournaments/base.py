@@ -81,11 +81,15 @@ class StandingRow:
     """One participant's standings line, pre-sorted per the format's rules.
 
     :param participant_id: the participant unit id.
-    :param wins: number of wins as a float (draw = 0.5, bye = 1.0).
+    :param wins: number of wins as a float (bye = 1.0; draws do NOT count here).
     :param net_score: sum of (own score − opponent score) over recorded matches
         (bye contributes 0).
     :param opponent_wins: head-to-head scalar (相互胜负) — see module docstring.
     :param seed: 1-based position of the participant in the input list.
+    :param losses: number of losses (each recorded non-draw loss counts 1).
+    :param draws: number of draws (平局数).
+    :param points: ranking points used for sorting (swiss: wins + 0.5·draws;
+        single_elim: equals wins).
     """
 
     participant_id: int
@@ -93,6 +97,9 @@ class StandingRow:
     net_score: float
     opponent_wins: float
     seed: int
+    losses: float = 0.0
+    draws: float = 0.0
+    points: float = 0.0
 
 
 class TournamentEngine(ABC):

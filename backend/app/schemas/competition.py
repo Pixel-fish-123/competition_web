@@ -10,12 +10,9 @@ class CompetitionCreate(BaseModel):
     name: str = Field(min_length=2, max_length=100)
     description: str | None = None
     banner_url: str | None = None
-    participant_type: Literal["team", "individual", "mixed"] = "mixed"
-    tournament_format: Literal["round_robin", "swiss", "single_elim"] = "round_robin"
+    participant_type: Literal["individual", "mixed"] = "mixed"
+    tournament_format: Literal["swiss", "single_elim"] = "swiss"
     format_config: dict = Field(default_factory=dict)
-    points_rule: dict = Field(default_factory=dict)
-    gameplay_plugin: str = Field(default="triangle_occupy", max_length=50)
-    song_lib: dict | None = None
     referee_ids: list[int] = Field(default_factory=list)
     max_participants: int = Field(default=50, ge=1)
     start_time: datetime | None = None
@@ -28,12 +25,9 @@ class CompetitionUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=100)
     description: str | None = None
     banner_url: str | None = None
-    participant_type: Literal["team", "individual", "mixed"] | None = None
-    tournament_format: Literal["round_robin", "swiss", "single_elim"] | None = None
+    participant_type: Literal["individual", "mixed"] | None = None
+    tournament_format: Literal["swiss", "single_elim"] | None = None
     format_config: dict | None = None
-    points_rule: dict | None = None
-    gameplay_plugin: str | None = Field(default=None, max_length=50)
-    song_lib: dict | None = None
     referee_ids: list[int] | None = None
     max_participants: int | None = Field(default=None, ge=1)
     start_time: datetime | None = None
@@ -41,9 +35,14 @@ class CompetitionUpdate(BaseModel):
 
 
 class CompetitionStatusUpdate(BaseModel):
-    """Status-machine transition target (validated against the transition table)."""
+    """Status-machine transition target (validated against the transition table).
+
+    ``force``：true 时强制结束（issue 8）——未完成对局标记为作废
+    (abandoned)，不参与排名，比赛直接进入 finished。
+    """
 
     status: Literal["draft", "registration", "ongoing", "finished", "cancelled"]
+    force: bool = False
 
 
 class CompetitionOut(BaseModel):
@@ -56,9 +55,6 @@ class CompetitionOut(BaseModel):
     participant_type: str
     tournament_format: str
     format_config: dict
-    points_rule: dict
-    gameplay_plugin: str
-    song_lib: dict | None
     referee_ids: list[int]
     max_participants: int
     status: str

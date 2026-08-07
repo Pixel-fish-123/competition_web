@@ -17,22 +17,11 @@ from app.models.user import User
 
 PASSWORD = "secret123"
 
-SONG_LIB = {
-    "songs": [
-        {"name": f"歌曲{i:02d}", "type": "Glitch", "level": f"{i % 10 + 6}"}
-        for i in range(1, 24)
-    ]
-}
-
 BASE_PAYLOAD = {
     "name": "审批测试比赛",
     "description": "报名审批闭环",
     "participant_type": "individual",
-    "tournament_format": "round_robin",
-    "format_config": {"group_size": 6},
-    "points_rule": {"1": 10, "2": 5},
-    "gameplay_plugin": "triangle_occupy",
-    "song_lib": SONG_LIB,
+    "tournament_format": "swiss",
     "referee_ids": [],
     "max_participants": 6,
 }

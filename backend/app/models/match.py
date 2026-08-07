@@ -1,4 +1,4 @@
-"""对局（Match）与玩法会话（GameSession）ORM 模型（todo 14）。
+"""对局（Match）ORM 模型（todo 14）。
 
 Match 是对局生命周期（pending → in_progress → finished）的持久化载体：
 
@@ -7,7 +7,8 @@ Match 是对局生命周期（pending → in_progress → finished）的持久�
 - ``participant_a`` / ``participant_b`` 来自引擎 MatchPlan。单败淘汰的后续
   轮次在排表时参赛者未知，两列为 None，开赛时由引擎根据前序结果解析。
 - ``result``（JSON）保存裁判提交的最终结果 {winner, is_draw, score_a,
-  score_b}；``result_type`` 为 "win" / "draw" 冗余标记，便于查询过滤。
+  score_b}；``result_type`` 为 "win" / "draw" / "abandoned" 冗余标记。
+- ``result_locked``：保存结果后锁定，禁止再修改（见 record_match_result）。
 - ``gameplay_log``（JSON）保存比赛后从外部 demo 控制器导入的玩法日志
   （事件数组 + 比分 + 胜者，见 api/matches.py 的 gameplay-log 导入端点）。
   仅用于展示，不参与赛程推进；对局结果一律由裁判手工输入（record_match_result）。
@@ -15,15 +16,6 @@ Match 是对局生命周期（pending → in_progress → finished）的持久�
   （引擎按 schedule 迭代顺序从 1 递增分配）。start/record 时按相同
   participants + config 重建引擎，即可用此列定位引擎中的对局并调用
   engine.record_result / 解析后续轮次参赛者（重建是确定性的）。
-
-GameSession 是单局玩法会话（一场对局一套玩法，如 triangle_occupy）：
-
-- 已从 match 流程中移除：开赛不再创建会话，对局完全由裁判手工管理。
-  模型仅保留以便既有数据可读；不得新建（``gameplay_log`` 取代其展示职责）。
-- ``config`` 保存创建会话时的玩法配置（song_lib / seed / sides）。
-- ``state_json`` 保存插件 create_session 返回的初始状态 dict，以及后续
-  操作后的最新状态（对局中由裁判在玩法路由内更新，todo 14 仅负责落库）。
-- ``ended_at`` 由玩法会话结束时回填（本 todo 预留，路由层沿用内存存储）。
 
 表创建策略与其余模型一致：app/main.py import 本模块，
 lifespan 的 ``Base.metadata.create_all`` 会建表。
@@ -65,25 +57,10 @@ class Match(Base):
     # {"defender": X, "attacker": Y}, "winner": "defender"|"attacker"|"draw"|null,
     # "imported_at": "ISO 时间戳"}。仅展示用，不影响赛程引擎。
     gameplay_log: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # 保存结果后置 True，结果锁定不可再改（issue 14）。
+    result_locked: Mapped[bool] = mapped_column(default=False, nullable=False)
     referee_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True
     )
     scheduled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-
-
-class GameSession(Base):
-    __tablename__ = "game_sessions"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    match_id: Mapped[int] = mapped_column(
-        ForeignKey("matches.id"), nullable=False, index=True
-    )
-    # 玩法插件注册表键，如 "triangle_occupy"。
-    plugin_name: Mapped[str] = mapped_column(String(50), nullable=False)
-    # 创建会话时传入插件的配置（song_lib / seed / sides）。
-    config: Mapped[dict] = mapped_column(JSON, default=dict)
-    # 插件会话状态 dict（可 JSON 序列化；对局中随操作更新）。
-    state_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

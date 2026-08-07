@@ -11,7 +11,6 @@ import AdminUsers from '../views/admin/Users.vue'
 import AdminCompetitions from '../views/admin/Competitions.vue'
 import AdminPoints from '../views/admin/Points.vue'
 import AdminTraffic from '../views/admin/Traffic.vue'
-import AdminPlugins from '../views/admin/Plugins.vue'
 import { useAuthStore } from '../stores/auth'
 
 const router = createRouter({
@@ -32,7 +31,6 @@ const router = createRouter({
         { path: 'competitions', name: 'admin-competitions', component: AdminCompetitions },
         { path: 'points', name: 'admin-points', component: AdminPoints },
         { path: 'traffic', name: 'admin-traffic', component: AdminTraffic },
-        { path: 'plugins', name: 'admin-plugins', component: AdminPlugins },
       ],
     },
     { path: '/profile', name: 'profile', component: Profile, meta: { requiresAuth: true } },

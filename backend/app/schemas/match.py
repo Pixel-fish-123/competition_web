@@ -10,12 +10,14 @@ class MatchResultIn(BaseModel):
 
     - ``is_draw`` 为 True 时 ``winner`` 必须为 None（引擎侧校验）。
     - ``score_a`` / ``score_b`` 供净胜分（net_score）决胜使用。
+    - ``lock``：true 时保存结果并锁定（issue 14）——锁定后结果不可再修改。
     """
 
     winner: int | None = None
     is_draw: bool = False
     score_a: float = 0.0
     score_b: float = 0.0
+    lock: bool = False
 
 
 class MatchStartIn(BaseModel):
@@ -37,6 +39,8 @@ class MatchOut(BaseModel):
     result_type: str | None
     # 导入的比赛玩法日志（demo 控制器导出，见 gameplay-log 导入端点）。
     gameplay_log: dict | None = None
+    # 结果是否已锁定（保存结果后不可再改，issue 14）。
+    result_locked: bool = False
     referee_id: int | None
     scheduled_at: datetime | None
     created_at: datetime
@@ -44,24 +48,9 @@ class MatchOut(BaseModel):
     # 队伍=队名，个体=昵称或用户名）。
     participant_a_name: str | None = None
     participant_b_name: str | None = None
-    # 玩法插件 registry key（如 "triangle_occupy"），API 层手工填充，
-    # 供前端按插件名动态解析玩法组件。
-    gameplay_plugin: str | None = None
-
-
-class GameSessionOut(BaseModel):
-    """玩法会话详情（state = state_json 的公开视图）。"""
-
-    id: int
-    match_id: int
-    plugin_name: str
-    state: dict | None
-    started_at: datetime | None
-    ended_at: datetime | None
 
 
 class MatchDetailOut(BaseModel):
-    """单局详情：对局信息 + 该局的玩法会话（若已开赛）。"""
+    """单局详情：对局信息 + 已导入的玩法日志（在 match.gameplay_log 内）。"""
 
     match: MatchOut
-    session: GameSessionOut | None

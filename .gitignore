@@ -9,5 +9,7 @@ __pycache__/
 dist/
 .omo/*
 !.omo/boulder.json
+.opencode/
 .playwright-mcp/
 *.log
+

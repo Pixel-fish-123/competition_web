@@ -2,11 +2,15 @@
 
 覆盖：
 - POST /api/matches/{id}/gameplay-log（JSON/CSV 上传）→ 200，
-  match.gameplay_log 填充 events + 从 victory 事件解析出的比分/胜者。
+  match.gameplay_log 填充 events + 按 demo 导出格式解析出的比分/胜者。
 - GET /api/matches/{id}/gameplay-log 读回已存日志；MatchOut 亦带 gameplay_log。
 - 表单字段 score_a/score_b/winner 显式覆盖解析值。
 - ?sync=true → 预填 match.result（不结束对局、不触碰引擎）。
 - 重复导入覆盖旧日志（幂等）；坏文件/空文件 400 且错误清晰。
+
+样例事件全部采用 demo 控制器（D:\\myproject1\\demo）真实导出格式：
+- 正常结束（超时）：type="system"，文本「游戏结束 - 守护者获胜 (守85 : 掠72)」。
+- 顶端直胜：type="victory"，文本「进攻方顶端直胜！直接获胜」（进攻方胜，无比分）。
 """
 
 import json
@@ -18,38 +22,27 @@ from app.models.user import User
 
 PASSWORD = "secret123"
 
-SONG_LIB = {
-    "songs": [
-        {"name": f"歌曲{i:02d}", "type": "Glitch", "level": f"{i % 10 + 6}"}
-        for i in range(1, 24)
-    ]
-}
-
 BASE_PAYLOAD = {
     "name": "玩法日志测试比赛",
     "description": "玩法日志导入测试",
     "participant_type": "individual",
-    "tournament_format": "round_robin",
-    "format_config": {"group_size": 6},
-    "points_rule": {"1": 10, "2": 5},
-    "gameplay_plugin": "triangle_occupy",
-    "song_lib": SONG_LIB,
+    "tournament_format": "swiss",
     "referee_ids": [],
     "max_participants": 6,
 }
 
-# demo 导出的 JSON 事件数组（victory 事件含比分与胜者）。
+# demo 导出的 JSON 事件数组（结束事件 type="system"，文本含胜者与守/掠比分）。
 SAMPLE_EVENTS = [
     {"time": "00:32", "text": "守护者占领了L2第1个格子 的SongName 任务名 (8) [守卫]", "type": "occupy"},
     {"time": "01:15", "text": "掠夺者占领了L1源头 (固定+10) 的SongName L1源头 (15) [占领L1]", "type": "l1"},
-    {"time": "12:30", "text": "游戏结束 — 时间到，守护者获胜（积分 85:72）", "type": "victory"},
+    {"time": "24:55", "text": "游戏结束 - 守护者获胜 (守85 : 掠72)", "type": "system"},
 ]
 
 # demo 导出的 CSV（BOM + time,type,text 表头）。
 SAMPLE_CSV = (
     "\ufefftime,type,text\n"
     "00:32,occupy,守护者占领了L2第1个格子 的SongName 任务名 (8) [守卫]\n"
-    "12:30,victory,游戏结束 — 时间到，掠夺者获胜（积分 72:85）\n"
+    "24:55,system,游戏结束 - 掠夺者获胜 (守72 : 掠85)\n"
 )
 
 
@@ -149,8 +142,8 @@ def test_import_json_log_populates_gameplay_log(admin_client):
     log = body["gameplay_log"]
     assert len(log["events"]) == 3
     assert log["events"][0]["type"] == "occupy"
-    assert log["events"][2]["type"] == "victory"
-    # 从最后一条 victory 事件解析比分与胜者（守护者=defender=participant_a）。
+    assert log["events"][2]["type"] == "system"
+    # 从「游戏结束」事件解析比分与胜者（守护者=defender=participant_a）。
     assert log["scores"] == {"defender": 85.0, "attacker": 72.0}
     assert log["winner"] == "defender"
     assert "imported_at" in log
@@ -237,9 +230,11 @@ def test_import_sync_true_prefills_match_result(admin_client):
     with SessionLocal() as db:
         match = db.get(Match, match_id)
         assert match.gameplay_log is not None
-        assert match.result["score_a"] == 85.0
-        assert match.result["score_b"] == 72.0
-        assert match.result["winner"] == match.participant_a  # defender -> participant_a
+        # 守护者=defender=participant_b（蓝方），掠夺者=attacker=participant_a（红方）。
+        # score_a 属 participant_a（掠夺者=72），score_b 属 participant_b（守护者=85）。
+        assert match.result["score_a"] == 72.0
+        assert match.result["score_b"] == 85.0
+        assert match.result["winner"] == match.participant_b  # defender -> participant_b
         assert match.result["is_draw"] is False
         assert match.result_type == "win"
         # 预填不结束对局：赛程推进仍由裁判 POST /result 完成。
@@ -252,7 +247,7 @@ def test_import_sync_draw_maps_winner_none(admin_client):
 
     events = [
         {"time": "00:05", "text": "开局", "type": "system"},
-        {"time": "12:30", "text": "游戏结束 — 时间到，平局（积分 50:50）", "type": "victory"},
+        {"time": "24:55", "text": "游戏结束 - 平局 (守50 : 掠50)", "type": "system"},
     ]
     resp = _upload(admin_client, match_id, content=json.dumps(events).encode("utf-8"), params={"sync": "true"})
     assert resp.status_code == 200, resp.text
@@ -264,6 +259,31 @@ def test_import_sync_draw_maps_winner_none(admin_client):
         assert match.result["score_a"] == 50.0
         assert match.result["score_b"] == 50.0
         assert match.result_type == "draw"
+        assert match.status == "in_progress"
+
+
+def test_import_top_victory_attacker_wins(admin_client):
+    """顶端直胜：victory 事件文本无比分与胜者关键字 —— 进攻方（掠夺者/
+    attacker=participant_a）获胜，比分留空。"""
+    match_id, referee_token = _seed(admin_client)
+    _start(admin_client, match_id, referee_token)
+
+    events = [
+        {"time": "00:32", "text": "掠夺者占领了L1源头 (固定+10) 的SongName L1源头 (15) [占领L1]", "type": "l1"},
+        {"time": "18:20", "text": "进攻方顶端直胜！直接获胜", "type": "victory"},
+    ]
+    resp = _upload(admin_client, match_id, content=json.dumps(events).encode("utf-8"), params={"sync": "true"})
+    assert resp.status_code == 200, resp.text
+
+    log = resp.json()["gameplay_log"]
+    assert log["winner"] == "attacker"
+    assert log["scores"] == {"defender": None, "attacker": None}
+
+    with SessionLocal() as db:
+        match = db.get(Match, match_id)
+        assert match.result["winner"] == match.participant_a  # attacker -> participant_a
+        assert match.result["is_draw"] is False
+        assert match.result_type == "win"
         assert match.status == "in_progress"
 
 
@@ -280,7 +300,7 @@ def test_reimport_overwrites_previous_log(admin_client):
 
     other = [
         {"time": "00:10", "text": "A", "type": "occupy"},
-        {"time": "12:30", "text": "游戏结束 — 时间到，掠夺者获胜（积分 30:99）", "type": "victory"},
+        {"time": "24:55", "text": "游戏结束 - 掠夺者获胜 (守30 : 掠99)", "type": "system"},
     ]
     second = _upload(admin_client, match_id, content=json.dumps(other).encode("utf-8"))
     assert second.status_code == 200

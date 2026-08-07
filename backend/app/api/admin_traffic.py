@@ -1,7 +1,7 @@
 """Admin-only 流量监控聚合接口（todo 16）。
 
 数据源：AuditLog 表（历史动作聚合）+ core/lockout.py（实时锁定态）。
-四个端点全部挂在 router 级 ``require_admin`` 依赖下，非 admin → 403、
+三个端点全部挂在 router 级 ``require_admin`` 依赖下，非 admin → 403、
 未登录/被封禁 → 401。每个端点额外限流 60 次/分/IP。
 """
 
@@ -12,7 +12,6 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from app.core.lockout import locked_accounts
 from app.core.ratelimit import limiter
 from app.core.rbac import require_admin
 from app.db import get_db
@@ -72,24 +71,6 @@ def failed_logins(request: Request, db: Session = Depends(get_db)):
             {"username": u, "count": c} for u, c in username_counter.most_common(20)
         ],
     }
-
-
-@router.get("/api/admin/traffic/locked")
-@limiter.limit("60/minute")
-def locked(request: Request):
-    """当前处于锁定期的账号列表（实时，来自 core/lockout.py）。"""
-    now_ts = datetime.now(timezone.utc).timestamp()
-    items = []
-    for acc in locked_accounts():
-        until = datetime.fromtimestamp(acc["locked_until"], tz=timezone.utc)
-        items.append(
-            {
-                "username": acc["username"],
-                "locked_until": until.isoformat(),
-                "remaining_seconds": max(0, int(acc["locked_until"] - now_ts)),
-            }
-        )
-    return items
 
 
 @router.get("/api/admin/traffic/logs")

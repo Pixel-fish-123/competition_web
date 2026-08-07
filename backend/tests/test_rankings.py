@@ -50,11 +50,7 @@ def _create_ok(admin_client, **overrides):
         "name": "排行榜测试比赛",
         "description": "场次排名",
         "participant_type": "individual",
-        "tournament_format": "round_robin",
-        "format_config": {"group_size": 6},
-        "points_rule": {"1": 100, "2": 60, "3": 40, "default": 10},
-        "gameplay_plugin": "triangle_occupy",
-        "song_lib": SONG_LIB,
+        "tournament_format": "swiss",
         "referee_ids": [],
         "max_participants": 6,
         **overrides,
@@ -92,17 +88,23 @@ def _seed_players_and_approve(client, admin_token, competition_id, count):
 
 
 def _play_all_matches(client, referee_token, competition_id):
-    resp = client.get(f"/api/competitions/{competition_id}/matches")
-    assert resp.status_code == 200, resp.text
-    for match in resp.json():
-        _as_user(client, referee_token)
-        start = client.post(f"/api/matches/{match['id']}/start", json={})
-        assert start.status_code == 200, start.text
-        result = client.post(
-            f"/api/matches/{match['id']}/result",
-            json={"winner": match["participant_a"]},
-        )
-        assert result.status_code == 200, result.text
+    """循环打到无未完成对局：瑞士轮逐轮物化，下一轮随记分自动落地。"""
+    _as_user(client, referee_token)
+    while True:
+        resp = client.get(f"/api/competitions/{competition_id}/matches")
+        assert resp.status_code == 200, resp.text
+        pending = [m for m in resp.json() if m["status"] != "finished"]
+        if not pending:
+            break
+        for match in pending:
+            start = client.post(f"/api/matches/{match['id']}/start", json={})
+            assert start.status_code == 200, start.text
+            detail = client.get(f"/api/matches/{match['id']}").json()["match"]
+            result = client.post(
+                f"/api/matches/{match['id']}/result",
+                json={"winner": detail["participant_a"]},
+            )
+            assert result.status_code == 200, result.text
 
 
 def _run_competition(client, admin_client):
@@ -125,10 +127,20 @@ def test_competition_rankings_rows_after_matches_recorded(admin_client):
     assert len(rows) == 6
     assert [row["rank"] for row in rows] == [1, 2, 3, 4, 5, 6]
     assert {row["participant_id"] for row in rows} == set(player_ids)
-    # wins strictly descending (6-player round-robin, no draws).
+    # wins strictly descending (6-player swiss, ceil(log2 6)+1 = 4 rounds,
+    # no draws). wins/losses/draws/points 均随胜场展示（issue 9/11）。
     wins = [row["wins"] for row in rows]
     assert wins == sorted(wins, reverse=True)
-    assert wins[0] == 5.0
+    assert wins[0] == 4.0
+    for row in rows:
+        assert set(row) == {
+            "rank", "participant_id", "participant_name",
+            "wins", "losses", "draws", "points",
+            "net_score", "opponent_wins",
+        }
+    assert sum(row["losses"] for row in rows) == 12  # 12 局败场
+    assert sum(row["draws"] for row in rows) == 0
+    assert all(row["points"] == row["wins"] for row in rows)
     assert all(row["participant_name"] is not None for row in rows)
 
 

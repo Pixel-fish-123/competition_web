@@ -41,6 +41,9 @@ def _ensure_schema_upgrades() -> None:
     返回行的 ``name`` 字段在下标 1。目前升级项：
     - ``users.nickname``（历史遗留）
     - ``matches.gameplay_log``（玩法日志导入字段）
+    - ``matches.result_locked``（保存结果锁定，issue 14）
+    - ``competitions`` 剔除玩法插件/积分规则/曲库列（issue 6，SQLite
+      ≥3.35 支持 ALTER TABLE DROP COLUMN）
     """
     with engine.connect() as conn:
         users = conn.execute(text("PRAGMA table_info(users)")).fetchall()
@@ -49,6 +52,14 @@ def _ensure_schema_upgrades() -> None:
         matches = conn.execute(text("PRAGMA table_info(matches)")).fetchall()
         if matches and not any(row[1] == "gameplay_log" for row in matches):
             conn.execute(text("ALTER TABLE matches ADD COLUMN gameplay_log JSON"))
+        if matches and not any(row[1] == "result_locked" for row in matches):
+            conn.execute(
+                text("ALTER TABLE matches ADD COLUMN result_locked BOOLEAN NOT NULL DEFAULT 0")
+            )
+        for column in ("gameplay_plugin", "points_rule", "song_lib"):
+            cols = conn.execute(text("PRAGMA table_info(competitions)")).fetchall()
+            if any(row[1] == column for row in cols):
+                conn.execute(text(f"ALTER TABLE competitions DROP COLUMN {column}"))
         conn.commit()
 
 
@@ -59,17 +70,15 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     # 旧库 schema 升级（create_all 只建新表，不补已存在表的列）。
     _ensure_schema_upgrades()
-    # 玩法插件已从对局流程中解耦（对局由裁判手工管理，不再挂载玩法路由）。
-    # 插件目录保留作参考/未来使用，但不再 register + mount。
     # 摘除上一轮 lifespan 追加的 API 兜底（幂等重入），保证兜底始终排在全部
     # 真实 API 路由之后 —— 兜底匹配 /api/* 全路径，会遮蔽其后注册的任何路由。
     _drop_tail_routes(app)
     # 未匹配 /api/* 的 JSON 404 兜底（避免落入前端托管得到 index.html/405）。
     app.include_router(_api_fallback_router)
     # 前端静态托管：FastAPI 0.141 原生 frontend（低优先级路由 —— 全部普通
-    # 路由之后才匹配，天然规避 Mount("/") 遮蔽晚注册玩法路由的问题），
-    # fallback="index.html" 支持 SPA history 深链（/login、/competitions/1）
-    # 与 http.ts 401 硬跳转。幂等：只注册一次（测试反复进入 lifespan）。
+    # 路由之后才匹配），fallback="index.html" 支持 SPA history 深链
+    # （/login、/competitions/1）与 http.ts 401 硬跳转。幂等：只注册一次
+    # （测试反复进入 lifespan）。
     if os.path.isdir(_frontend_dist) and getattr(app.router, "_frontend_routes", None) is None:
         app.frontend("/", directory=_frontend_dist, fallback="index.html")
     yield
@@ -122,7 +131,7 @@ _frontend_dist = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os
 
 # 未匹配的 /api/* 请求统一返回 JSON 404：前端托管会把未匹配 GET 回退成
 # index.html、非 GET 回成 405，掩盖"接口不存在"。该兜底路由在 lifespan 内、
-# 真实 API 路由与玩法路由之后 include（见 lifespan）。
+# 真实 API 路由之后 include（见 lifespan）。
 _api_fallback_router = APIRouter()
 
 

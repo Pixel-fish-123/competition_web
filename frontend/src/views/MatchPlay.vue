@@ -1,9 +1,13 @@
 <template>
   <div class="match-play">
     <div class="match-play__header">
+      <el-button text @click="goBack">← 返回</el-button>
       <h1>对局 #{{ matchId }}</h1>
       <el-tag v-if="match" :type="matchStatusType" effect="dark" size="large">
         {{ matchStatusText }}
+      </el-tag>
+      <el-tag v-if="match?.result_locked" type="success" effect="dark" size="large">
+        结果已锁定
       </el-tag>
     </div>
 
@@ -11,13 +15,13 @@
     <div v-if="match && match.status === 'pending'" class="match-play__state">
       <div class="match-play__teams">
         <div class="match-play__team match-play__team--red">
-          <span class="match-play__team-label">红方</span>
-          <span class="match-play__team-name">{{ redName }}</span>
+          <span class="match-play__team-label">掠夺者</span>
+          <span class="match-play__team-name">{{ raiderName }}</span>
         </div>
         <div class="match-play__vs">VS</div>
         <div class="match-play__team match-play__team--blue">
-          <span class="match-play__team-label">蓝方</span>
-          <span class="match-play__team-name">{{ blueName }}</span>
+          <span class="match-play__team-label">守护者</span>
+          <span class="match-play__team-name">{{ guardianName }}</span>
         </div>
       </div>
 
@@ -45,18 +49,18 @@
 
       <div class="match-play__teams">
         <div class="match-play__team match-play__team--red">
-          <span class="match-play__team-label">红方</span>
-          <span class="match-play__team-name">{{ redName }}</span>
+          <span class="match-play__team-label">掠夺者</span>
+          <span class="match-play__team-name">{{ raiderName }}</span>
         </div>
         <div class="match-play__vs">VS</div>
         <div class="match-play__team match-play__team--blue">
-          <span class="match-play__team-label">蓝方</span>
-          <span class="match-play__team-name">{{ blueName }}</span>
+          <span class="match-play__team-label">守护者</span>
+          <span class="match-play__team-name">{{ guardianName }}</span>
         </div>
       </div>
 
       <div v-if="isRefereeOrAdmin" class="match-play__action">
-        <el-button type="danger" size="large" @click="openResultDialog">
+        <el-button type="danger" size="large" @click="openJudgePanel">
           结束比赛
         </el-button>
       </div>
@@ -67,37 +71,11 @@
         title="比赛进行中，等待裁判结束"
         class="match-play__notice"
       />
-    </div>
 
-    <!-- 状态三：已结束 -->
-    <div v-else-if="match && match.status === 'finished'" class="match-play__state">
-      <!-- 3a. 结果展示 + 手动编辑 -->
-      <section class="match-play__section">
-        <h2 class="match-play__section-title">比赛结果</h2>
-        <div v-if="match.result" class="match-play__result">
-          <div class="match-play__result-line">
-            <span class="match-play__result-team match-play__result-team--red">
-              {{ redName }}
-            </span>
-            <span class="match-play__result-score">
-              {{ formatScore(match.result.score_a) }} : {{ formatScore(match.result.score_b) }}
-            </span>
-            <span class="match-play__result-team match-play__result-team--blue">
-              {{ blueName }}
-            </span>
-          </div>
-          <div class="match-play__result-winner">
-            <el-tag :type="winnerTagType" effect="light">
-              {{ winnerText }}
-            </el-tag>
-          </div>
-        </div>
-        <el-empty v-else description="待录入结果" :image-size="60" />
-      </section>
+      <!-- 判定面板：导入日志 -> 自动判定 -> 人工微调 -> 保存结果(锁定) -->
+      <section v-if="judgeOpen" class="match-play__section">
+        <h2 class="match-play__section-title">判定结果</h2>
 
-      <!-- 3b. 玩法日志导入（仅裁判/admin） -->
-      <section v-if="isRefereeOrAdmin" class="match-play__section">
-        <h2 class="match-play__section-title">导入玩法日志</h2>
         <div class="match-play__import">
           <input
             ref="fileInput"
@@ -106,7 +84,7 @@
             class="match-play__file-input"
             @change="onFileChange"
           />
-          <el-checkbox v-model="syncScores">同步分数</el-checkbox>
+          <el-checkbox v-model="syncScores">导入时同步判定</el-checkbox>
           <el-button
             type="primary"
             :disabled="!selectedFile"
@@ -117,22 +95,138 @@
           </el-button>
           <span v-if="selectedFile" class="match-play__file-name">{{ selectedFile.name }}</span>
         </div>
+
+        <div class="match-play__log-summary" v-if="match.gameplay_log">
+          <div class="match-play__log-scores">
+            日志判定: 守护者 {{ formatScore(logScores.defender) }} :
+            {{ formatScore(logScores.attacker) }} 掠夺者
+          </div>
+          <div class="match-play__log-winner">
+            日志胜者: <el-tag :type="logWinnerTagType" size="small">{{ logWinnerText }}</el-tag>
+          </div>
+        </div>
         <el-alert
-          v-if="importSuccess"
-          type="success"
+          v-else
+          type="info"
           :closable="false"
-          title="玩法日志导入成功"
+          title="尚未导入玩法日志"
+          description="请先导入 demo 控制器导出的日志文件，系统将自动判定比分与胜者；如结果有误可手动修改后保存。"
           class="match-play__notice"
         />
+
+        <el-form label-width="90px" class="match-play__form">
+          <el-form-item label="掠夺者得分">
+            <el-input-number v-model="resultForm.score_a" :min="0" :step="1" />
+          </el-form-item>
+          <el-form-item label="守护者得分">
+            <el-input-number v-model="resultForm.score_b" :min="0" :step="1" />
+          </el-form-item>
+          <el-form-item label="胜者">
+            <el-radio-group v-model="resultForm.winner">
+              <el-radio :value="'raider'">掠夺者</el-radio>
+              <el-radio :value="'guardian'">守护者</el-radio>
+              <el-radio :value="'draw'">平局</el-radio>
+            </el-radio-group>
+          </el-form-item>
+        </el-form>
+        <div class="match-play__action">
+          <el-button @click="judgeOpen = false">取消</el-button>
+          <el-button type="primary" :loading="submittingResult" @click="onSaveResult">
+            保存结果
+          </el-button>
+        </div>
+        <div class="match-play__lock-hint">保存后结果将锁定，无法再更改</div>
+      </section>
+    </div>
+
+    <!-- 状态三：已结束 -->
+    <div v-else-if="match && match.status === 'finished'" class="match-play__state">
+      <!-- 3a. 结果展示 -->
+      <section class="match-play__section">
+        <h2 class="match-play__section-title">比赛结果</h2>
+        <div v-if="match.result" class="match-play__result">
+          <div class="match-play__result-line">
+            <span class="match-play__result-team match-play__result-team--red">
+              {{ raiderName }}
+            </span>
+            <span class="match-play__result-score">
+              {{ formatScore(match.result.score_a) }} : {{ formatScore(match.result.score_b) }}
+            </span>
+            <span class="match-play__result-team match-play__result-team--blue">
+              {{ guardianName }}
+            </span>
+          </div>
+          <div class="match-play__result-winner">
+            <el-tag :type="winnerTagType" effect="light">
+              {{ winnerText }}
+            </el-tag>
+          </div>
+        </div>
+        <el-empty v-else description="待录入结果" :image-size="60" />
+        <div v-if="match.result_locked" class="match-play__lock-badge">
+          结果已锁定，无法更改
+        </div>
+        <div v-else-if="isRefereeOrAdmin" class="match-play__action">
+          <el-button type="warning" @click="openJudgePanel">修改结果</el-button>
+        </div>
       </section>
 
-      <!-- 3c. 玩法日志展示（所有用户） -->
+      <!-- 判定面板（已结束且未锁定时修改结果用） -->
+      <section
+        v-if="judgeOpen && !match.result_locked && isRefereeOrAdmin"
+        class="match-play__section"
+      >
+        <h2 class="match-play__section-title">修改结果</h2>
+        <div class="match-play__import">
+          <input
+            ref="fileInput"
+            type="file"
+            accept=".json,.csv"
+            class="match-play__file-input"
+            @change="onFileChange"
+          />
+          <el-checkbox v-model="syncScores">导入时同步判定</el-checkbox>
+          <el-button
+            type="primary"
+            :disabled="!selectedFile"
+            :loading="importing"
+            @click="onImportLog"
+          >
+            导入玩法日志
+          </el-button>
+          <span v-if="selectedFile" class="match-play__file-name">{{ selectedFile.name }}</span>
+        </div>
+        <el-form label-width="90px" class="match-play__form">
+          <el-form-item label="掠夺者得分">
+            <el-input-number v-model="resultForm.score_a" :min="0" :step="1" />
+          </el-form-item>
+          <el-form-item label="守护者得分">
+            <el-input-number v-model="resultForm.score_b" :min="0" :step="1" />
+          </el-form-item>
+          <el-form-item label="胜者">
+            <el-radio-group v-model="resultForm.winner">
+              <el-radio :value="'raider'">掠夺者</el-radio>
+              <el-radio :value="'guardian'">守护者</el-radio>
+              <el-radio :value="'draw'">平局</el-radio>
+            </el-radio-group>
+          </el-form-item>
+        </el-form>
+        <div class="match-play__action">
+          <el-button @click="judgeOpen = false">取消</el-button>
+          <el-button type="primary" :loading="submittingResult" @click="onSaveResult">
+            保存结果
+          </el-button>
+        </div>
+        <div class="match-play__lock-hint">保存后结果将锁定，无法再更改</div>
+      </section>
+
+      <!-- 3b. 玩法日志展示（所有用户） -->
       <section v-if="match.gameplay_log" class="match-play__section">
         <h2 class="match-play__section-title">玩法日志</h2>
         <div class="match-play__log-summary">
           <div class="match-play__log-scores">
-            日志分数: 红方 {{ formatScore(logScores.defender) }} :
-            {{ formatScore(logScores.attacker) }} 蓝方
+            日志分数: 守护者 {{ formatScore(logScores.defender) }} :
+            {{ formatScore(logScores.attacker) }} 掠夺者
           </div>
           <div class="match-play__log-winner">
             日志判定: <el-tag :type="logWinnerTagType" size="small">{{ logWinnerText }}</el-tag>
@@ -159,41 +253,12 @@
     <div v-else class="match-play__empty">
       <el-empty description="连接中…" />
     </div>
-
-    <!-- 结束比赛 / 编辑结果 对话框 -->
-    <el-dialog
-      v-model="resultDialogVisible"
-      :title="match?.status === 'in_progress' ? '结束比赛并录入结果' : '编辑比赛结果'"
-      width="420px"
-    >
-      <el-form label-width="80px">
-        <el-form-item label="红方得分">
-          <el-input-number v-model="resultForm.score_a" :min="0" :step="1" />
-        </el-form-item>
-        <el-form-item label="蓝方得分">
-          <el-input-number v-model="resultForm.score_b" :min="0" :step="1" />
-        </el-form-item>
-        <el-form-item label="胜者">
-          <el-radio-group v-model="resultForm.winner">
-            <el-radio :value="'red'">红方</el-radio>
-            <el-radio :value="'blue'">蓝方</el-radio>
-            <el-radio :value="'draw'">平局</el-radio>
-          </el-radio-group>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="resultDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="submittingResult" @click="onSubmitResult">
-          提交结果
-        </el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import http from '../api/http'
 import { useAuthStore } from '../stores/auth'
@@ -229,6 +294,7 @@ interface MatchInfo {
   status: string
   result: MatchResult | null
   result_type: string | null
+  result_locked: boolean
   referee_id: number | null
   gameplay_log: GameplayLog | null
 }
@@ -238,6 +304,7 @@ interface MatchDetailResp {
 }
 
 const route = useRoute()
+const router = useRouter()
 const auth = useAuthStore()
 
 const matchId = computed(() => Number(route.params.mid))
@@ -248,16 +315,20 @@ const submittingResult = ref(false)
 const importing = ref(false)
 const importSuccess = ref(false)
 
-const resultDialogVisible = ref(false)
-const resultForm = reactive<{ score_a: number; score_b: number; winner: 'red' | 'blue' | 'draw' }>({
+const judgeOpen = ref(false)
+const resultForm = reactive<{
+  score_a: number
+  score_b: number
+  winner: 'raider' | 'guardian' | 'draw'
+}>({
   score_a: 0,
   score_b: 0,
-  winner: 'red',
+  winner: 'raider',
 })
 
 const fileInput = ref<HTMLInputElement | null>(null)
 const selectedFile = ref<File | null>(null)
-const syncScores = ref(false)
+const syncScores = ref(true)
 
 let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -265,8 +336,10 @@ let unmounted = false
 
 const isRefereeOrAdmin = computed(() => auth.isRefereeOrAdmin)
 
-const redName = computed(() => match.value?.participant_a_name || '选手A')
-const blueName = computed(() => match.value?.participant_b_name || '选手B')
+// 约定（用户确认）：participant_a = 掠夺者（进攻方/attacker/红方），
+// participant_b = 守护者（防守方/defender/蓝方）；页面统一标注掠夺者/守护者。
+const raiderName = computed(() => match.value?.participant_a_name || '选手A')
+const guardianName = computed(() => match.value?.participant_b_name || '选手B')
 
 const matchStatusType = computed(() => {
   switch (match.value?.status) {
@@ -294,8 +367,8 @@ const winnerText = computed(() => {
   const r = match.value?.result
   if (!r) return '待录入结果'
   if (r.is_draw) return '平局'
-  if (r.winner === match.value?.participant_a) return `红方 ${redName.value} 获胜`
-  if (r.winner === match.value?.participant_b) return `蓝方 ${blueName.value} 获胜`
+  if (r.winner === match.value?.participant_a) return `掠夺者 ${raiderName.value} 获胜`
+  if (r.winner === match.value?.participant_b) return `守护者 ${guardianName.value} 获胜`
   return '结果待定'
 })
 
@@ -319,9 +392,9 @@ const logImportedAt = computed(() => match.value?.gameplay_log?.imported_at ?? n
 const logWinnerText = computed(() => {
   switch (logWinner.value) {
     case 'defender':
-      return '红方'
+      return '守护者'
     case 'attacker':
-      return '蓝方'
+      return '掠夺者'
     case 'draw':
       return '平局'
     default:
@@ -332,9 +405,9 @@ const logWinnerText = computed(() => {
 const logWinnerTagType = computed(() => {
   switch (logWinner.value) {
     case 'defender':
-      return 'danger'
-    case 'attacker':
       return 'primary'
+    case 'attacker':
+      return 'danger'
     case 'draw':
       return 'warning'
     default:
@@ -366,6 +439,15 @@ function formatTime(iso: string | null): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleString()
+}
+
+function goBack(): void {
+  const cid = match.value?.competition_id
+  if (cid) {
+    router.push(`/competitions/${cid}`)
+  } else {
+    router.back()
+  }
 }
 
 function connectWs(): void {
@@ -414,29 +496,29 @@ async function onStartMatch(): Promise<void> {
   }
 }
 
-function openResultDialog(): void {
+function openJudgePanel(): void {
   const r = match.value?.result
   resultForm.score_a = r?.score_a ?? 0
   resultForm.score_b = r?.score_b ?? 0
   if (r?.is_draw) {
     resultForm.winner = 'draw'
   } else if (r?.winner === match.value?.participant_a) {
-    resultForm.winner = 'red'
+    resultForm.winner = 'raider'
   } else if (r?.winner === match.value?.participant_b) {
-    resultForm.winner = 'blue'
+    resultForm.winner = 'guardian'
   } else {
-    resultForm.winner = 'red'
+    resultForm.winner = 'raider'
   }
-  resultDialogVisible.value = true
+  judgeOpen.value = true
 }
 
-async function onSubmitResult(): Promise<void> {
+async function onSaveResult(): Promise<void> {
   submittingResult.value = true
   try {
     const isDraw = resultForm.winner === 'draw'
     const winner = isDraw
       ? null
-      : resultForm.winner === 'red'
+      : resultForm.winner === 'raider'
         ? match.value?.participant_a ?? null
         : match.value?.participant_b ?? null
     await http.post(`/matches/${matchId.value}/result`, {
@@ -444,13 +526,14 @@ async function onSubmitResult(): Promise<void> {
       is_draw: isDraw,
       score_a: resultForm.score_a,
       score_b: resultForm.score_b,
+      lock: true,
     })
-    ElMessage.success('结果已提交，比赛已结束')
-    resultDialogVisible.value = false
+    ElMessage.success('结果已保存并锁定，无法再更改')
+    judgeOpen.value = false
     await loadMatch()
   } catch (e: unknown) {
     const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
-    ElMessage.error(detail || '提交结果失败')
+    ElMessage.error(detail || '保存结果失败')
   } finally {
     submittingResult.value = false
   }
@@ -480,6 +563,17 @@ async function onImportLog(): Promise<void> {
     selectedFile.value = null
     if (fileInput.value) fileInput.value.value = ''
     await loadMatch()
+    // 同步判定后把解析结果带入表单，裁判可微调。
+    if (syncScores.value) {
+      const log = match.value?.gameplay_log
+      if (log) {
+        resultForm.score_a = log.scores.attacker ?? 0
+        resultForm.score_b = log.scores.defender ?? 0
+        if (log.winner === 'defender') resultForm.winner = 'guardian'
+        else if (log.winner === 'attacker') resultForm.winner = 'raider'
+        else if (log.winner === 'draw') resultForm.winner = 'draw'
+      }
+    }
   } catch (e: unknown) {
     const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
     ElMessage.error(detail || '导入玩法日志失败')
@@ -666,6 +760,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 16px;
   flex-wrap: wrap;
+  margin-bottom: 16px;
 }
 .match-play__file-input {
   max-width: 260px;
@@ -673,6 +768,24 @@ onBeforeUnmount(() => {
 .match-play__file-name {
   font-size: 13px;
   color: #606266;
+}
+.match-play__form {
+  margin-top: 8px;
+  max-width: 420px;
+}
+.match-play__lock-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #909399;
+  text-align: center;
+}
+.match-play__lock-badge {
+  margin-top: 12px;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background: #f0f9eb;
+  color: #67c23a;
+  font-size: 13px;
 }
 .match-play__log-summary {
   display: flex;

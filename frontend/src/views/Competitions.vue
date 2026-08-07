@@ -50,7 +50,6 @@ interface Competition {
   participant_type: string
   tournament_format: string
   format_config: Record<string, any>
-  gameplay_plugin: string
   max_participants: number
   status: string
   start_time: string | null

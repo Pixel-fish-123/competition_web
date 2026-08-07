@@ -18,23 +18,11 @@ from app.services import match_service
 
 PASSWORD = "secret123"
 
-# triangle_occupy's generate_tasks_from_songs requires >= 23 songs.
-SONG_LIB = {
-    "songs": [
-        {"name": f"歌曲{i:02d}", "type": "Glitch", "level": f"{i % 10 + 6}"}
-        for i in range(1, 24)
-    ]
-}
-
 BASE_PAYLOAD = {
     "name": "瑞士轮测试比赛",
     "description": "轮次物化测试",
     "participant_type": "individual",
     "tournament_format": "swiss",
-    "format_config": {},
-    "points_rule": {"1": 10, "2": 5},
-    "gameplay_plugin": "triangle_occupy",
-    "song_lib": SONG_LIB,
     "referee_ids": [],
     "max_participants": 6,
 }

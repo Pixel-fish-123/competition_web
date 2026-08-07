@@ -1,8 +1,8 @@
 <template>
   <div class="home">
-    <!-- 宣传插画轮播位 -->
+    <!-- 宣传插画轮播位（纯播放动画，无交互按钮） -->
     <section class="home__hero">
-      <el-carousel height="360px" :interval="5000" arrow="always">
+      <el-carousel height="360px" :interval="5000" arrow="never" :autoplay="true" loop>
         <el-carousel-item v-for="(slide, i) in slides" :key="i">
           <div class="hero-slide" :class="`hero-slide--${i + 1}`">
             <div class="hero-slide__art" aria-hidden="true">
@@ -15,9 +15,6 @@
             <div class="hero-slide__text">
               <h2>{{ slide.title }}</h2>
               <p>{{ slide.subtitle }}</p>
-              <el-button type="primary" size="large" round @click="goCompetitions">
-                {{ slide.cta }}
-              </el-button>
             </div>
           </div>
         </el-carousel-item>
@@ -27,15 +24,10 @@
 </template>
 
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
-
-const router = useRouter()
-
 const slides = [
   {
     title: '萌新杯音游大赛',
     subtitle: '全新赛季开启，欢迎各路萌新与高手同台竞技',
-    cta: '立即报名',
     points: '100,20 180,90 100,160 20,90',
     points2: '100,60 150,100 100,140 50,100',
     fill: '#409eff',
@@ -47,8 +39,7 @@ const slides = [
   },
   {
     title: '三角占领',
-    subtitle: '经典玩法回归，策略与手速的巅峰对决',
-    cta: '了解赛制',
+    subtitle: '策略与手速的巅峰对决',
     points: '100,30 170,140 30,140',
     points2: '100,70 140,130 60,130',
     fill: '#67c23a',
@@ -61,7 +52,6 @@ const slides = [
   {
     title: '全新赛季',
     subtitle: '更多玩法、更多奖励，等你来挑战',
-    cta: '查看比赛',
     points: '100,20 180,100 100,180 20,100',
     points2: '100,60 140,100 100,140 60,100',
     fill: '#e6a23c',
@@ -72,10 +62,6 @@ const slides = [
     accent: '#409eff',
   },
 ]
-
-function goCompetitions() {
-  router.push('/competitions')
-}
 </script>
 
 <style scoped>

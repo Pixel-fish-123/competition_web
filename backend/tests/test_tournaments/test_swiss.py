@@ -251,15 +251,19 @@ def test_bye_goes_to_lowest_ranked_each_round():
 
 
 def test_draw_gives_half_point_to_both():
-    """Metis E1: a draw gives each side 0.5 points."""
+    """Metis E1: a draw gives each side 0.5 points (wins 不计入胜场)."""
     engine = SwissEngine([1, 2, 3, 4], {})
     match = _real_matches(engine.generate_schedule())[0]
 
     engine.record_result(match.match_id, MatchResult(winner=None, is_draw=True))
     by_id = {row.participant_id: row for row in engine.standings()}
 
-    assert by_id[match.participant_a].wins == 0.5
-    assert by_id[match.participant_b].wins == 0.5
+    assert by_id[match.participant_a].points == 0.5
+    assert by_id[match.participant_b].points == 0.5
+    assert by_id[match.participant_a].wins == 0.0
+    assert by_id[match.participant_b].wins == 0.0
+    assert by_id[match.participant_a].draws == 1.0
+    assert by_id[match.participant_b].draws == 1.0
 
 
 def test_record_all_wins_lower_id_always_wins():
@@ -273,7 +277,7 @@ def test_record_all_wins_lower_id_always_wins():
     assert standings[0].participant_id == 1
     assert standings[0].wins == 4.0  # undefeated champion
     assert all(row.wins <= 4.0 for row in standings)
-    points = [row.wins for row in standings]
+    points = [row.points for row in standings]
     assert points == sorted(points, reverse=True)
     assert engine.is_complete() is True
 

@@ -72,7 +72,11 @@ def competition_rankings(
             "rank": rank,
             "participant_id": row.participant_id,
             "participant_name": names.get(row.participant_id),
+            # issue 9/11：胜场 / 败场 / 平局 分别展示。
             "wins": row.wins,
+            "losses": row.losses,
+            "draws": row.draws,
+            "points": row.points,
             "net_score": row.net_score,
             "opponent_wins": row.opponent_wins,
         }

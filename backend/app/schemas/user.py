@@ -31,14 +31,14 @@ class LoginRequest(BaseModel):
 
 
 class UserPatchRequest(BaseModel):
-    """Admin-only partial user update (todo 5): role / status / password.
+    """Admin-only partial user update (todo 5): role / password.
 
     All fields optional; ``None`` means "leave unchanged". Password enforces
-    the same length policy as RegisterRequest.
+    the same length policy as RegisterRequest. ``status``（封禁）已随
+    issue 4 删除：账号状态由系统管理，不再提供人工封禁。
     """
 
     role: str | None = Field(default=None)
-    status: str | None = Field(default=None)
     password: str | None = Field(default=None, min_length=6, max_length=64)
 
 

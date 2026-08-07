@@ -243,12 +243,15 @@ class SingleElimEngine(TournamentEngine):
         """Ranking: champion, runner-up, third-place winner/loser, then all
         other participants by elimination round desc, then seed asc. When the
         third-place match is unplayed, the two semifinal losers tie at 3rd/4th
-        and are ordered by seed asc. wins = recorded non-bye match wins."""
+        and are ordered by seed asc. wins = recorded non-bye match wins;
+        losses = recorded losses; draws 恒 0（单败禁平局）; points = wins."""
         wins: dict[int, float] = {pid: 0.0 for pid in self.participants}
+        losses: dict[int, float] = {pid: 0.0 for pid in self.participants}
         net: dict[int, float] = {pid: 0.0 for pid in self.participants}
         for mid, res in self._results.items():
             wins[res.winner] += 1.0
             pa, pb = self._resolved[mid]
+            losses[pa if res.winner == pb else pb] += 1.0
             net[pa] += res.score_a - res.score_b
             net[pb] += res.score_b - res.score_a
 
@@ -269,7 +272,19 @@ class SingleElimEngine(TournamentEngine):
         remaining = [p for p in self.participants if p not in explicitly_ranked]
         remaining.sort(key=lambda p: (-self._elim_round.get(p, self._R + 1), self._seed_map[p]))
         order = front + remaining
-        return [StandingRow(p, wins[p], net[p], 0.0, self._seed_map[p]) for p in order]
+        return [
+            StandingRow(
+                p,
+                wins[p],
+                net[p],
+                0.0,
+                self._seed_map[p],
+                losses=losses[p],
+                draws=0.0,
+                points=wins[p],
+            )
+            for p in order
+        ]
 
     def is_complete(self) -> bool:
         """True once the final (champion-deciding) match has a result.

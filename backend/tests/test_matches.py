@@ -1,9 +1,10 @@
-"""TDD tests for the match lifecycle / gameplay-session API (todo 14).
+"""TDD tests for the match lifecycle API (todo 14).
 
-Flow: create competition (round_robin, group_size=6) -> 6 individual
-registrations -> approve (direct DB write; no approval endpoint yet) ->
-transition ongoing (engine schedule materializes Match rows) -> referee starts
-a match (GameSession via plugin) -> referee records result (engine advances).
+Flow: create competition (swiss) -> 6 individual registrations -> approve
+(direct DB write) -> transition ongoing (engine schedule materializes round-1
+Match rows) -> referee starts a match -> referee records result (engine
+advances, next round materializes) -> all matches played -> finished guard
+passes.
 
 Metis E1 (single-elim draw -> 400), E3 (referee must be in referee_ids -> 403),
 C7 (no manual match creation), V-checks (finished guard on uncompleted
@@ -18,24 +19,11 @@ from app.services import match_service
 
 PASSWORD = "secret123"
 
-# triangle_occupy's generate_tasks_from_songs requires >= 23 songs, each with
-# a name, a valid type (Glitch/Chaos/Hard) and a difficulty level.
-SONG_LIB = {
-    "songs": [
-        {"name": f"歌曲{i:02d}", "type": "Glitch", "level": f"{i % 10 + 6}"}
-        for i in range(1, 24)
-    ]
-}
-
 BASE_PAYLOAD = {
     "name": "对局测试比赛",
     "description": "生命周期测试",
     "participant_type": "individual",
-    "tournament_format": "round_robin",
-    "format_config": {"group_size": 6},
-    "points_rule": {"1": 10, "2": 5},
-    "gameplay_plugin": "triangle_occupy",
-    "song_lib": SONG_LIB,
+    "tournament_format": "swiss",
     "referee_ids": [],
     "max_participants": 6,
 }
@@ -123,7 +111,7 @@ def _get_matches(client, competition_id):
 # ------------------------------------------------------------ happy lifecycle
 
 
-def test_round_robin_schedule_generated_on_ongoing(admin_client):
+def test_swiss_schedule_generated_on_ongoing(admin_client):
     admin_token = admin_client.cookies.get("token")
     referee_id, _ = _make_referee(admin_client, admin_token)
     comp_id = _create_ok(admin_client, referee_ids=[referee_id])
@@ -133,17 +121,12 @@ def test_round_robin_schedule_generated_on_ongoing(admin_client):
     resp = _transition(admin_client, comp_id, "ongoing")
     assert resp.status_code == 200, resp.text
 
-    # 6 participants, one group of 6 -> 5 rounds x 3 matches = 15.
+    # 6 participants, swiss -> 只物化第 1 轮：3 场真实对局，全部 pending。
     matches = _get_matches(admin_client, comp_id)
-    assert len(matches) == 15
+    assert len(matches) == 3
     rounds = {m["round_id"] for m in matches}
-    assert rounds == {1, 2, 3, 4, 5}
-    # Every round has exactly 3 real matches.
-    for round_id in (1, 2, 3, 4, 5):
-        round_matches = [m for m in matches if m["round_id"] == round_id]
-        assert len(round_matches) == 3
-        assert all(m["participant_b"] is not None for m in round_matches)
-    # No match is pre-finished (no byes with 6 participants).
+    assert rounds == {1}
+    assert all(m["participant_b"] is not None for m in matches)
     assert all(m["status"] == "pending" for m in matches)
     assert all(m["result_type"] is None for m in matches)
 
@@ -166,10 +149,9 @@ def test_full_lifecycle_start_result_finish(admin_client):
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "in_progress"
 
-    # Detail shows the match is live; no GameSession is attached anymore.
+    # Detail shows the match is live (no GameSession — 玩法已解耦，模型已删).
     detail = admin_client.get(f"/api/matches/{first['id']}")
     assert detail.status_code == 200
-    assert detail.json()["session"] is None
     assert detail.json()["match"]["status"] == "in_progress"
     assert detail.json()["match"]["referee_id"] == referee_id
 
@@ -187,7 +169,10 @@ def test_full_lifecycle_start_result_finish(admin_client):
 
 
 def test_play_all_matches_then_finish_competition(admin_client):
-    """Engine advances through every match; finished guard passes at the end."""
+    """Engine advances through every match; finished guard passes at the end.
+
+    瑞士轮逐轮物化：循环打到无未完成对局为止。
+    """
     admin_token = admin_client.cookies.get("token")
     referee_id, referee_token = _make_referee(admin_client, admin_token)
     comp_id = _create_ok(admin_client, referee_ids=[referee_id])
@@ -195,20 +180,24 @@ def test_play_all_matches_then_finish_competition(admin_client):
     _seed_players_and_approve(admin_client, admin_token, comp_id, 6)
     assert _transition(admin_client, comp_id, "ongoing").status_code == 200
 
-    matches = _get_matches(admin_client, comp_id)
-    for match in matches:
-        _as_user(admin_client, referee_token)
-        start = admin_client.post(f"/api/matches/{match['id']}/start", json={})
-        assert start.status_code == 200, start.text
-        result = admin_client.post(
-            f"/api/matches/{match['id']}/result",
-            json={"winner": match["participant_a"]},
-        )
-        assert result.status_code == 200, result.text
-        assert result.json()["status"] == "finished"
-        assert result.json()["result_type"] == "win"
+    _as_user(admin_client, referee_token)
+    while True:
+        matches = _get_matches(admin_client, comp_id)
+        pending = [m for m in matches if m["status"] != "finished"]
+        if not pending:
+            break
+        for match in pending:
+            start = admin_client.post(f"/api/matches/{match['id']}/start", json={})
+            assert start.status_code == 200, start.text
+            result = admin_client.post(
+                f"/api/matches/{match['id']}/result",
+                json={"winner": match["participant_a"]},
+            )
+            assert result.status_code == 200, result.text
+            assert result.json()["status"] == "finished"
+            assert result.json()["result_type"] == "win"
 
-    # All 15 matches finished -> competition can be finished.
+    # All matches finished -> competition can be finished.
     _as_user(admin_client, admin_token)
     resp = _transition(admin_client, comp_id, "finished")
     assert resp.status_code == 200, resp.text
@@ -331,6 +320,49 @@ def test_finished_match_can_rerecord_result(admin_client):
     assert resp2.json()["result"]["score_b"] == 7
 
 
+def test_result_lock_prevents_rerecord(admin_client):
+    """issue 14：保存结果（lock=true）后结果锁定，任何再次 /result 均 400。"""
+    admin_token = admin_client.cookies.get("token")
+    referee_id, referee_token = _make_referee(admin_client, admin_token)
+    comp_id = _create_ok(admin_client, referee_ids=[referee_id])
+    assert _transition(admin_client, comp_id, "registration").status_code == 200
+    _seed_players_and_approve(admin_client, admin_token, comp_id, 4)
+    assert _transition(admin_client, comp_id, "ongoing").status_code == 200
+
+    match = _get_matches(admin_client, comp_id)[0]
+    _as_user(admin_client, referee_token)
+    assert (
+        admin_client.post(f"/api/matches/{match['id']}/start", json={}).status_code
+        == 200
+    )
+    # 首次记分 + 锁定。
+    resp = admin_client.post(
+        f"/api/matches/{match['id']}/result",
+        json={
+            "winner": match["participant_a"],
+            "is_draw": False,
+            "score_a": 10,
+            "score_b": 5,
+            "lock": True,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["result_locked"] is True
+
+    # 锁定后任何修改都被拒绝。
+    resp2 = admin_client.post(
+        f"/api/matches/{match['id']}/result",
+        json={"winner": match["participant_b"], "is_draw": False, "score_a": 3, "score_b": 7},
+    )
+    assert resp2.status_code == 400
+    assert resp2.json()["detail"] == "结果已锁定，无法更改"
+
+    # 结果保持首次提交的值。
+    detail = admin_client.get(f"/api/matches/{match['id']}").json()
+    assert detail["match"]["result_locked"] is True
+    assert detail["match"]["result"]["winner"] == match["participant_a"]
+
+
 def test_list_matches_unauthenticated_returns_401(client):
     with SessionLocal() as db:
         comp = Competition(name="未认证比赛", status="ongoing", created_by=1)
@@ -405,7 +437,6 @@ def test_single_elim_bye_auto_finishes_on_start(admin_client):
     assert detail["match"]["status"] == "finished"
     assert detail["match"]["result_type"] == "win"
     assert detail["match"]["result"]["winner"] == bye["participant_a"]
-    assert detail["session"] is None
 
 
 def test_single_elim_draw_returns_400(admin_client):
@@ -454,7 +485,6 @@ def test_single_elim_later_round_start_write_back_participants(admin_client):
 
     单败淘汰后续轮次排表时 participant_a/b 为 None；开赛后必须落库，
     否则前端 match 接口永远读到 null、无法推导 participant_id。
-    详情接口还需带 gameplay_plugin（前端按插件名解析玩法组件）。
     """
     comp_id, referee_token = _seed_single_elim(admin_client, count=5)
     matches = _get_matches(admin_client, comp_id)
@@ -474,11 +504,10 @@ def test_single_elim_later_round_start_write_back_participants(admin_client):
     )
     assert resp.status_code == 200, resp.text
 
-    # 开赛前：后续轮次 participant_a/b 仍为 None，但详情已带 gameplay_plugin。
+    # 开赛前：后续轮次 participant_a/b 仍为 None。
     detail = admin_client.get(f"/api/matches/{round2['id']}").json()
     assert detail["match"]["participant_a"] is None
     assert detail["match"]["participant_b"] is None
-    assert detail["match"]["gameplay_plugin"] == "triangle_occupy"
 
     # 开赛：引擎解析出真实参赛者并回写落库（不再创建玩法会话）。
     resp = admin_client.post(f"/api/matches/{round2['id']}/start", json={})
@@ -498,8 +527,7 @@ def test_single_elim_later_round_start_write_back_participants(admin_client):
         assert match_row.participant_a == exp_a
         assert match_row.participant_b == exp_b
 
-    # API 详情同源读取：participant 非空 + gameplay_plugin。
+    # API 详情同源读取：participant 非空。
     detail = admin_client.get(f"/api/matches/{round2['id']}").json()
     assert detail["match"]["participant_a"] is not None
     assert detail["match"]["participant_b"] is not None
-    assert detail["match"]["gameplay_plugin"] == "triangle_occupy"

@@ -53,7 +53,7 @@ cd D:\myproject1\competition_web\backend
 
 种子脚本额外创建：`萌新队A`（player1/2/3，队长 player1）、`萌新队B`
 （player4/5/6，队长 player4）两支 3 人队伍，以及演示比赛
-`萌新杯·演示赛`（round_robin + triangle_occupy，4 条已通过报名）。
+`萌新杯·演示赛`（swiss，4 条已通过报名）。
 
 脚本幂等：以用户名 `admin` 是否已存在为判断依据，已初始化时直接打印
 `已初始化，跳过` 退出，不会产生重复数据。

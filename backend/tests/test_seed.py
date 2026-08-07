@@ -2,11 +2,8 @@
 
 Isolated from the API-tests' ``client`` fixture: each test recreates the
 tables on the shared per-PID temp DB, then calls ``seed.seed_all`` directly
-with an injected session (``song_lib`` passed in-memory / via tmp file so the
-tests never depend on the external demo song library).
+with an injected session.
 """
-
-import json
 
 import pytest
 
@@ -17,8 +14,6 @@ from app.models.registration import Registration
 from app.models.team import Team, TeamMember
 from app.models.user import User
 from seed import seed_all
-
-SONG_LIB = {"songs": [{"name": "Test Song", "type": "Hard", "level": "1"}]}
 
 
 @pytest.fixture()
@@ -43,10 +38,7 @@ def _counts(session):
 
 
 def test_seed_creates_full_demo_dataset(db, tmp_path):
-    song_file = tmp_path / "songs.json"
-    song_file.write_text(json.dumps(SONG_LIB), encoding="utf-8")
-
-    result = seed_all(db, song_lib_path=str(song_file))
+    result = seed_all(db)
 
     assert result["skipped"] is False
     assert result["users"] == 10
@@ -80,13 +72,9 @@ def test_seed_creates_full_demo_dataset(db, tmp_path):
     comp = db.query(Competition).one()
     assert comp.name == "萌新杯·演示赛"
     assert comp.participant_type == "mixed"
-    assert comp.tournament_format == "round_robin"
-    assert comp.format_config == {"group_size": 4}
-    assert comp.points_rule == {"1": 100, "2": 60, "3": 40, "default": 10}
-    assert comp.gameplay_plugin == "triangle_occupy"
+    assert comp.tournament_format == "swiss"
     assert comp.status == "registration"
     assert comp.max_participants == 8
-    assert comp.song_lib == SONG_LIB  # loaded from the tmp file
     referee = db.query(User).filter(User.role == "referee").one()
     assert comp.referee_ids == [referee.id]
     admin = db.query(User).filter(User.role == "admin").one()
@@ -106,10 +94,10 @@ def test_seed_creates_full_demo_dataset(db, tmp_path):
 
 
 def test_seed_twice_is_idempotent(db):
-    first = seed_all(db, song_lib=SONG_LIB)
+    first = seed_all(db)
     before = _counts(db)
 
-    second = seed_all(db, song_lib=SONG_LIB)
+    second = seed_all(db)
 
     assert first["skipped"] is False
     assert second["skipped"] is True
@@ -119,7 +107,7 @@ def test_seed_twice_is_idempotent(db):
 def test_seeded_admin_can_login(client):
     """End-to-end: seeded admin credentials work against the real auth API."""
     with SessionLocal() as session:
-        seed_all(session, song_lib=SONG_LIB)
+        seed_all(session)
 
     resp = client.post(
         "/api/auth/login", json={"username": "admin", "password": "admin123"}

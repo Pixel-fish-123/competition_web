@@ -5,6 +5,9 @@
     <template v-if="competition">
       <!-- 头部 -->
       <section class="comp-detail__header">
+        <div class="comp-detail__back">
+          <el-button text @click="router.back()">← 返回比赛列表</el-button>
+        </div>
         <div class="comp-detail__banner" :class="`banner-${(competition.id % 4) + 1}`">
           <span>{{ competition.name }}</span>
         </div>
@@ -20,7 +23,6 @@
             <el-tag size="small">{{ participantLabel(competition.participant_type) }}</el-tag>
             <el-tag size="small" type="success">{{ formatLabel(competition.tournament_format) }}</el-tag>
             <el-tag size="small" type="info">上限 {{ competition.max_participants }}</el-tag>
-            <el-tag size="small" type="warning">{{ gameplayLabel(competition.gameplay_plugin) }}</el-tag>
           </div>
           <div class="comp-detail__time">
             <span v-if="competition.start_time">开始：{{ formatTime(competition.start_time) }}</span>
@@ -171,7 +173,6 @@ interface Competition {
   participant_type: string
   tournament_format: string
   format_config: Record<string, any>
-  gameplay_plugin: string
   max_participants: number
   status: string
   start_time: string | null
@@ -285,10 +286,6 @@ function formatLabel(f: string) {
   if (f === 'single_elim') return '单败淘汰'
   return f
 }
-function gameplayLabel(g: string) {
-  if (g === 'triangle_occupy') return '三角占领'
-  return g
-}
 function regStatusLabel(s: string) {
   if (s === 'pending') return '待审核'
   if (s === 'approved') return '已通过'
@@ -302,14 +299,11 @@ function formatTime(t: string) {
 const formatSummary = computed(() => {
   if (!competition.value) return ''
   const f = competition.value.tournament_format
-  const cfg = competition.value.format_config || {}
-  if (f === 'round_robin') {
-    return `循环赛制：所有参赛者分为 ${cfg.group_size ?? 1} 组进行循环对战，组内每对选手均需交手。`
-  }
   if (f === 'swiss') {
-    return `瑞士轮赛制：共进行 ${cfg.rounds ?? 5} 轮，每轮按积分相近原则配对，积分高者晋级。`
+    return '瑞士轮赛制：轮数随参赛人数自动调整（ceil(log₂n)+1 轮），每轮按积分相近原则配对，积分高者胜。'
   }
   if (f === 'single_elim') {
+    const cfg = competition.value.format_config || {}
     const parts: string[] = ['单败淘汰赛制：输一场即淘汰。']
     if (cfg.seeded) parts.push('采用种子排位。')
     if (cfg.third_place) parts.push('设有季军争夺战。')

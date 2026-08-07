@@ -195,8 +195,9 @@ def test_delete_competition_creator_400(admin_client):
         assert db.get(User, uid) is not None
 
 
-def test_delete_user_with_unfinished_match_400(admin_client):
-    """未完结对局参赛者禁止删除（避免打破赛程）。"""
+def test_delete_user_with_unfinished_match_opponent_wins(admin_client):
+    """issue 3：删除未完结对局的参赛者不再被阻塞 —— 对局按轮空计算，
+    直接判对手获胜（0:0, result_type=win）。"""
     admin_id = _admin_id(admin_client)
     uid = _create_user(admin_client, username="player_x", email="px@example.com", role="player")
     with SessionLocal() as db:
@@ -214,12 +215,22 @@ def test_delete_user_with_unfinished_match_400(admin_client):
             )
         )
         db.commit()
+        comp_id = comp.id
+        match_id = db.query(Match).filter(Match.competition_id == comp.id).one().id
 
     resp = admin_client.delete(f"/api/admin/users/{uid}")
-    assert resp.status_code == 400
-    assert resp.json()["detail"] == "该用户有未完结对局"
+    assert resp.status_code == 200, resp.text
+
     with SessionLocal() as db:
-        assert db.get(User, uid) is not None
+        assert db.get(User, uid) is None
+        match = db.get(Match, match_id)
+        assert match is not None
+        assert match.status == "finished"
+        assert match.result_type == "win"
+        assert match.result["winner"] == admin_id
+        assert match.result["score_a"] == 0.0
+        assert match.result["score_b"] == 0.0
+        assert comp_id is not None
 
 
 def test_delete_user_cascade_cleanup(admin_client):

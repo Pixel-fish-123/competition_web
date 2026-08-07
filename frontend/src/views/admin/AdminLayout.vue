@@ -7,7 +7,6 @@
         <router-link to="/admin/competitions" class="admin-nav-item">比赛管理</router-link>
         <router-link to="/admin/points" class="admin-nav-item">积分管理</router-link>
         <router-link to="/admin/traffic" class="admin-nav-item">流量监控</router-link>
-        <router-link to="/admin/plugins" class="admin-nav-item">玩法模板</router-link>
       </nav>
     </aside>
     <main class="admin-content">

@@ -99,7 +99,11 @@ def test_get_current_user_returns_active_user(client):
 def test_get_current_user_rejects_banned_user(admin_client):
     _register_user("player1", "p1@example.com")
     pid = _user_id(admin_client, "player1")
-    assert admin_client.patch(f"/api/admin/users/{pid}", json={"status": "banned"}).status_code == 200
+    # 封禁功能已删除（issue 4，无 PATCH status），但 DB 层面的状态校验保留。
+    with SessionLocal() as db:
+        user = db.get(User, pid)
+        user.status = "banned"
+        db.commit()
 
     with pytest.raises(HTTPException) as ei:
         _call_get_current_user(_login_client("player1").cookies.get("token"))
@@ -203,18 +207,18 @@ def test_admin_promotes_user_to_referee(admin_client):
 
 
 def test_admin_bans_user(admin_client):
+    """issue 4：封禁功能已删除 —— PATCH status 不再生效（字段被忽略）。"""
     _register_user("player1", "p1@example.com")
     pid = _user_id(admin_client, "player1")
 
     resp = admin_client.patch(f"/api/admin/users/{pid}", json={"status": "banned"})
     assert resp.status_code == 200
-    assert resp.json()["status"] == "banned"
+    # 未知字段被 Pydantic 忽略：账号状态保持 active。
+    assert resp.json()["status"] == "active"
 
-    # banned user is rejected by get_current_user (401, not 403)
-    banned_client = _login_client("player1")
-    resp = banned_client.get("/api/admin/users")
-    assert resp.status_code == 401
-    assert resp.json()["detail"] == "未登录或登录已失效"
+    # 用户仍可正常登录访问。
+    logged = _login_client("player1")
+    assert logged.get("/api/auth/me").json()["username"] == "player1"
 
 
 def test_admin_resets_user_password(admin_client):
@@ -263,13 +267,6 @@ def test_admin_patch_invalid_role_400(admin_client):
     resp = admin_client.patch(f"/api/admin/users/{pid}", json={"role": "superadmin"})
     assert resp.status_code == 400
     assert resp.json()["detail"] == "无效的角色"
-
-
-def test_admin_patch_invalid_status_400(admin_client):
-    pid = _user_id(admin_client, ADMIN_USERNAME)
-    resp = admin_client.patch(f"/api/admin/users/{pid}", json={"status": "ghost"})
-    assert resp.status_code == 400
-    assert resp.json()["detail"] == "无效的状态"
 
 
 def test_admin_patch_short_password_422(admin_client):

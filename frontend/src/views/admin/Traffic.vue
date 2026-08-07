@@ -15,7 +15,7 @@
     </el-row>
 
     <el-card shadow="never" class="section-card">
-      <template #header>登录失败趋势（按动作类型）</template>
+      <template #header>动作分布趋势（按动作类型）</template>
       <div class="chart-wrap">
         <div class="chart-block">
           <div class="chart-title">24h 失败登录</div>
@@ -106,26 +106,6 @@
       </el-col>
     </el-row>
 
-    <el-card shadow="never" class="section-card">
-      <template #header>
-        <div class="card-head">
-          <span>当前锁定账号</span>
-          <div class="lock-controls">
-            <span class="auto-label">自动刷新</span>
-            <el-switch v-model="autoRefresh" size="small" />
-          </div>
-        </div>
-      </template>
-      <el-table :data="locked" size="small" border>
-        <el-table-column prop="username" label="用户名" />
-        <el-table-column label="剩余时间" width="160">
-          <template #default="{ row }">
-            {{ formatRemaining(row.remaining_seconds) }}
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-card>
-
     <el-card shadow="never">
       <template #header>
         <div class="card-head">
@@ -166,7 +146,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import http from '../../api/http'
 
@@ -179,10 +159,6 @@ interface SummaryBucket {
 interface FailedLogins {
   top_ips: { ip: string; count: number }[]
   top_usernames: { username: string; count: number }[]
-}
-interface LockedItem {
-  username: string
-  remaining_seconds: number
 }
 interface LogItem {
   id: number
@@ -207,15 +183,11 @@ const summary = ref<{ since_24h: SummaryBucket; since_7d: SummaryBucket }>({
   since_7d: { login_attempts: 0, failed_logins: 0, registrations: 0, actions_by_type: {} },
 })
 const failed = ref<FailedLogins>({ top_ips: [], top_usernames: [] })
-const locked = ref<LockedItem[]>([])
 const logs = ref<LogRow[]>([])
 const actionFilter = ref('')
 const logTotal = ref(0)
 const logPage = ref(1)
 const logPageSize = 20
-
-const autoRefresh = ref(true)
-let refreshTimer: ReturnType<typeof setInterval> | null = null
 
 const summaryCards = computed(() => [
   { label: '24h 登录尝试', value: summary.value.since_24h.login_attempts },
@@ -234,9 +206,7 @@ const ACTION_LABELS: Record<string, string> = {
 }
 
 function toBars(bucket: SummaryBucket): { label: string; value: number }[] {
-  const entries = Object.entries(bucket.actions_by_type || {})
-    .filter(([k]) => k !== 'login_failed' || true)
-    .sort((a, b) => b[1] - a[1])
+  const entries = Object.entries(bucket.actions_by_type || {}).sort((a, b) => b[1] - a[1])
   if (entries.length === 0) return [{ label: '暂无数据', value: 0 }]
   return entries.map(([k, v]) => ({ label: ACTION_LABELS[k] ?? k, value: v }))
 }
@@ -257,13 +227,6 @@ function barWidth(value: number, max: number): string {
   return `${Math.max(2, Math.round((value / max) * 100))}%`
 }
 
-function formatRemaining(seconds: number): string {
-  const s = Math.max(0, seconds)
-  const m = Math.floor(s / 60)
-  const sec = s % 60
-  return `剩余 ${m} 分 ${sec} 秒`
-}
-
 async function loadSummary() {
   const { data } = await http.get('/admin/traffic/summary')
   summary.value = data
@@ -271,10 +234,6 @@ async function loadSummary() {
 async function loadFailed() {
   const { data } = await http.get<FailedLogins>('/admin/traffic/failed-logins')
   failed.value = data
-}
-async function loadLocked() {
-  const { data } = await http.get<LockedItem[]>('/admin/traffic/locked')
-  locked.value = data
 }
 async function loadLogs() {
   const params: Record<string, unknown> = {
@@ -305,7 +264,7 @@ function onPageChange(page: number) {
 async function loadAll() {
   loading.value = true
   try {
-    await Promise.all([loadSummary(), loadFailed(), loadLocked(), loadLogs()])
+    await Promise.all([loadSummary(), loadFailed(), loadLogs()])
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '加载流量数据失败')
   } finally {
@@ -313,32 +272,9 @@ async function loadAll() {
   }
 }
 
-function startAutoRefresh() {
-  stopAutoRefresh()
-  refreshTimer = setInterval(() => {
-    loadLocked()
-  }, 15000)
-}
-function stopAutoRefresh() {
-  if (refreshTimer) {
-    clearInterval(refreshTimer)
-    refreshTimer = null
-  }
-}
-
-watch(
-  autoRefresh,
-  (v) => {
-    if (v) startAutoRefresh()
-    else stopAutoRefresh()
-  },
-  { immediate: true },
-)
-
 onMounted(() => {
   loadAll()
 })
-onBeforeUnmount(stopAutoRefresh)
 </script>
 
 <style scoped>

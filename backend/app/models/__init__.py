@@ -3,7 +3,7 @@
 
 from app.models.audit_log import AuditLog
 from app.models.competition import Competition
-from app.models.match import GameSession, Match
+from app.models.match import Match
 from app.models.point import PointTransaction
 from app.models.registration import Registration
 from app.models.team import Team, TeamMember
@@ -16,7 +16,6 @@ __all__ = [
     "Competition",
     "Registration",
     "Match",
-    "GameSession",
     "AuditLog",
     "PointTransaction",
 ]

@@ -99,8 +99,7 @@ def _load_initial_state(match_id: int) -> dict | None:
     """返回初始状态帧；对局进行中 -> {"type": "match_started", "match_id": ...}，
     未进行 -> None（端点回退为 {"type": "no_session"}）。
 
-    玩法已从对局流程解耦：不再加载 GameSession 棋盘状态，只告知前端对局
-    是否已经开始。
+    只告知前端对局是否已经开始（无玩法棋盘状态）。
     """
     with SessionLocal() as db:
         match = db.get(Match, match_id)

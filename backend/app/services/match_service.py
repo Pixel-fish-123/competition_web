@@ -6,9 +6,9 @@
   轮空对局自动完结（记 win）。
 - ``record_match_result``: 裁判记分 -> 引擎 record_result + 对局落库。
 
-玩法插件已从对局流程解耦：开赛不再调用插件 create_session / 不再建
-GameSession（模型保留仅读旧数据）；比赛后可通过 gameplay-log 导入端点把
-demo 控制器导出的玩法日志存入 ``match.gameplay_log`` 供展示（不参与赛程）。
+玩法插件已从对局流程解耦：开赛不创建任何玩法会话；比赛后可通过
+gameplay-log 导入端点把 demo 控制器导出的玩法日志存入 ``match.gameplay_log``
+供展示（不参与赛程）。
 
 引擎一致性（关键设计）：
 - participants = 已批准报名按 participant id 排序（个体=user_id，
@@ -20,7 +20,7 @@ demo 控制器导出的玩法日志存入 ``match.gameplay_log`` 供展示（不
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -32,13 +32,8 @@ from app.models.registration import Registration
 from app.models.user import User
 from app.schemas.match import MatchResultIn
 from app.tournaments.base import MatchResult, RoundPlan, TournamentEngine
-from app.tournaments.round_robin import RoundRobinEngine
 from app.tournaments.single_elim import SingleElimEngine
 from app.tournaments.swiss import SwissEngine
-
-
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 def _approved_participant_ids(db: Session, competition: Competition) -> list[int]:
@@ -58,8 +53,6 @@ def _approved_participant_ids(db: Session, competition: Competition) -> list[int
 def _build_engine(competition: Competition, participants: list[int]) -> TournamentEngine:
     """按 tournament_format 实例化对应赛制引擎（格式非法抛 ValueError）。"""
     config = competition.format_config or {}
-    if competition.tournament_format == "round_robin":
-        return RoundRobinEngine(participants, config)
     if competition.tournament_format == "swiss":
         return SwissEngine(participants, config)
     if competition.tournament_format == "single_elim":
@@ -196,6 +189,8 @@ def _advance_swiss_if_due(db: Session, competition: Competition) -> None:
     """
     if competition.tournament_format != "swiss":
         return
+    if len(_approved_participant_ids(db, competition)) < 2:
+        return  # 无赛程可推进（空比赛 finish 也应放行，issue 8）
     engine = _rebuild_engine(db, competition)
     _replay_finished(db, competition, engine)
     for round_plan in engine.generate_schedule():
@@ -240,9 +235,8 @@ def start_match(
 ) -> Match:
     """裁判开赛：校验裁判归属 -> 对局置为 in_progress（不建玩法会话）。
 
-    玩法插件已从对局流程解耦：开赛不再调用插件 create_session / 不再创建
-    GameSession。轮空对局直接完结并返回（status=finished）；单败淘汰后续
-    轮次的对局参赛者由引擎根据前序已记录结果解析并回写。
+    轮空对局直接完结并返回（status=finished）；单败淘汰后续轮次的对局
+    参赛者由引擎根据前序已记录结果解析并回写。
     """
     match = db.get(Match, match_id)
     if match is None:
@@ -310,6 +304,9 @@ def record_match_result(
 
     引擎状态通过"重建 + 回放已完成对局"恢复，保证单败淘汰后续轮次的
     胜者/参与者校验与排位推进一致。
+
+    issue 14：``payload.lock`` 为 true 时保存结果并锁定 —— 锁定后任何
+    再次 /result 均返回 400（结果已确定，无法更改）。
     """
     match = db.get(Match, match_id)
     if match is None:
@@ -319,6 +316,9 @@ def record_match_result(
         raise HTTPException(status_code=404, detail="比赛不存在")
 
     _require_assigned_referee(competition, referee)
+
+    if match.result_locked:
+        raise HTTPException(status_code=400, detail="结果已锁定，无法更改")
 
     # 允许 in_progress（首次记分）和 finished（人工修改结果）两种状态。
     # finished 重新记分时，重建引擎需跳过当前 match 的旧结果（否则引擎
@@ -357,6 +357,8 @@ def record_match_result(
     }
     match.result_type = "draw" if payload.is_draw else "win"
     match.status = "finished"
+    if payload.lock:
+        match.result_locked = True
     db.commit()
     db.refresh(match)
 

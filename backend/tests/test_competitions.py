@@ -12,7 +12,7 @@ from datetime import datetime
 
 from app.db import SessionLocal
 from app.models.competition import Competition
-from app.models.match import GameSession, Match
+from app.models.match import Match
 from app.models.point import PointTransaction
 from app.models.registration import Registration
 from app.models.user import User
@@ -25,11 +25,7 @@ BASE_PAYLOAD = {
     "description": "描述",
     "banner_url": "https://example.com/banner.png",
     "participant_type": "mixed",
-    "tournament_format": "round_robin",
-    "format_config": {"groups": 2},
-    "points_rule": {"1": 10, "2": 5},
-    "gameplay_plugin": "triangle_occupy",
-    "song_lib": {"songs": ["song_a"]},
+    "tournament_format": "swiss",
     "referee_ids": [],
     "max_participants": 50,
 }
@@ -132,12 +128,9 @@ def test_admin_create_competition_full_config_round_trip(admin_client):
         admin_client,
         name="全配置比赛",
         description="全配置描述",
-        participant_type="team",
+        participant_type="mixed",
         tournament_format="swiss",
         format_config={"rounds": 5},
-        points_rule={"1": 10, "2": 5},
-        gameplay_plugin="triangle_occupy",
-        song_lib={"songs": ["song_a"]},
         referee_ids=[referee_id],
         max_participants=32,
         start_time="2026-08-10T09:00:00Z",
@@ -148,12 +141,9 @@ def test_admin_create_competition_full_config_round_trip(admin_client):
     assert data["name"] == "全配置比赛"
     assert data["description"] == "全配置描述"
     assert data["banner_url"] == "https://example.com/banner.png"
-    assert data["participant_type"] == "team"
+    assert data["participant_type"] == "mixed"
     assert data["tournament_format"] == "swiss"
     assert data["format_config"] == {"rounds": 5}
-    assert data["points_rule"] == {"1": 10, "2": 5}
-    assert data["gameplay_plugin"] == "triangle_occupy"
-    assert data["song_lib"] == {"songs": ["song_a"]}
     assert data["referee_ids"] == [referee_id]
     assert data["max_participants"] == 32
     assert data["status"] == "draft"
@@ -168,10 +158,8 @@ def test_create_defaults_draft_and_empty_config(admin_client):
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["status"] == "draft"
-    assert data["tournament_format"] == "round_robin"
-    assert data["gameplay_plugin"] == "triangle_occupy"
+    assert data["tournament_format"] == "swiss"
     assert data["format_config"] == {}
-    assert data["points_rule"] == {}
     assert data["referee_ids"] == []
     assert data["participant_type"] == "mixed"
     assert data["max_participants"] == 50
@@ -212,7 +200,7 @@ def test_admin_update_name_and_description(admin_client):
     assert data["name"] == "改名比赛"
     assert data["description"] == "新描述"
     # Unrelated fields untouched.
-    assert data["tournament_format"] == "round_robin"
+    assert data["tournament_format"] == "swiss"
     assert data["status"] == "draft"
 
 
@@ -322,31 +310,24 @@ def test_delete_finished_competition_returns_200_and_cascades(admin_client):
     for status in ("registration", "ongoing", "finished"):
         assert _transition(admin_client, comp_id, status).status_code == 200
 
-    # Seed business data that must be cascade-cleaned: a Match, its
-    # GameSession, a PointTransaction and a Registration.
+    # Seed business data that must be cascade-cleaned: a Match, a
+    # PointTransaction and a Registration.
     with SessionLocal() as db:
-        match = Match(
-            competition_id=comp_id,
-            round_id=1,
-            engine_match_id=1,
-            status="finished",
-        )
-        db.add(match)
-        db.flush()
         db.add(
-            GameSession(
-                match_id=match.id,
-                plugin_name="triangle_occupy",
-                config={},
+            Match(
+                competition_id=comp_id,
+                round_id=1,
+                engine_match_id=1,
+                status="finished",
             )
         )
         db.add(
             PointTransaction(
                 user_id=1,
                 amount=10,
-                kind="competition",
+                kind="manual",
                 ref_competition_id=comp_id,
-                reason="比赛名次·第1名",
+                reason="手动奖励",
             )
         )
         db.add(
@@ -370,13 +351,6 @@ def test_delete_finished_competition_returns_200_and_cascades(admin_client):
             db.query(Match).filter(Match.competition_id == comp_id).count() == 0
         )
         assert (
-            db.query(GameSession)
-            .join(Match, GameSession.match_id == Match.id)
-            .filter(Match.competition_id == comp_id)
-            .count()
-            == 0
-        )
-        assert (
             db.query(PointTransaction)
             .filter(PointTransaction.ref_competition_id == comp_id)
             .count()
@@ -390,13 +364,14 @@ def test_delete_finished_competition_returns_200_and_cascades(admin_client):
         )
 
 
-def test_delete_ongoing_competition_returns_400(admin_client):
+def test_delete_ongoing_competition_allowed(admin_client):
+    # issue 1：无论比赛是否结束，均可以直接删除。
     comp_id = _create_ok(admin_client)
     assert _transition(admin_client, comp_id, "registration").status_code == 200
     assert _transition(admin_client, comp_id, "ongoing").status_code == 200
     resp = admin_client.delete(f"/api/competitions/{comp_id}")
-    assert resp.status_code == 400
-    assert resp.json()["detail"] == "进行中的比赛无法删除"
+    assert resp.status_code == 200, resp.text
+    assert admin_client.get("/api/competitions").json() == []
 
 
 def test_player_cannot_delete_competition(client):
@@ -437,3 +412,74 @@ def test_delete_draft_with_registrations_removes_them(admin_client):
     # The registrations list endpoint confirms the competition no longer exists.
     resp = admin_client.get(f"/api/competitions/{comp_id}/registrations")
     assert resp.status_code == 404
+
+
+# ----------------------------------------------------- force finish (issue 8)
+
+
+def _seed_two_approved_players(admin_client, comp_id):
+    """Register 2 players, register + approve them via DB (swiss -> 1 match)."""
+    admin_token = admin_client.cookies.get("token")
+    for i in range(2):
+        _register(admin_client, f"force_player{i}", f"force{i}@example.com")
+        resp = admin_client.post(
+            f"/api/competitions/{comp_id}/register",
+            json={"participant_type": "individual"},
+        )
+        assert resp.status_code == 200, resp.text
+    admin_client.cookies.set("token", admin_token)
+    with SessionLocal() as db:
+        for reg in db.query(Registration).filter(
+            Registration.competition_id == comp_id
+        ):
+            reg.status = "approved"
+        db.commit()
+
+
+def _ongoing_with_unfinished_match(admin_client):
+    """draft -> registration -> (2 approved players) -> ongoing. Returns id."""
+    comp_id = _create_ok(admin_client, participant_type="individual")
+    assert _transition(admin_client, comp_id, "registration").status_code == 200
+    _seed_two_approved_players(admin_client, comp_id)
+    resp = _transition(admin_client, comp_id, "ongoing")
+    assert resp.status_code == 200, resp.text
+    return comp_id
+
+
+def test_finish_with_unfinished_matches_returns_400(admin_client):
+    comp_id = _ongoing_with_unfinished_match(admin_client)
+    resp = _transition(admin_client, comp_id, "finished")
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "存在未完成的对局"
+
+
+def test_force_finish_abandons_unfinished_matches(admin_client):
+    comp_id = _ongoing_with_unfinished_match(admin_client)
+    resp = admin_client.post(
+        f"/api/competitions/{comp_id}/status",
+        json={"status": "finished", "force": True},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "finished"
+
+    # 未完成对局标记为作废：status=finished + result_type=abandoned、
+    # 无 result（不参与排名与引擎回放）。
+    with SessionLocal() as db:
+        matches = (
+            db.query(Match).filter(Match.competition_id == comp_id).all()
+        )
+    assert len(matches) == 1
+    assert matches[0].status == "finished"
+    assert matches[0].result_type == "abandoned"
+    assert matches[0].result is None
+
+
+def test_force_finish_non_finished_target_ignored(admin_client):
+    # force 只对 finished 流转生效；其他流转行为不变。
+    comp_id = _create_ok(admin_client)
+    resp = admin_client.post(
+        f"/api/competitions/{comp_id}/status",
+        json={"status": "registration", "force": True},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "registration"

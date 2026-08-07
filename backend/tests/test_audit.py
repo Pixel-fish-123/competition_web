@@ -103,7 +103,6 @@ def test_player_forbidden_from_admin_traffic(client):
     for path in (
         "/api/admin/traffic/summary",
         "/api/admin/traffic/failed-logins",
-        "/api/admin/traffic/locked",
         "/api/admin/traffic/logs",
     ):
         assert client.get(path).status_code == 403

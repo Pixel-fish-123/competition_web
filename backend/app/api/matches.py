@@ -35,23 +35,18 @@ from app.core.audit import log_audit
 from app.core.rbac import get_current_user, require_referee
 from app.db import get_db
 from app.models.competition import Competition
-from app.models.match import GameSession, Match
+from app.models.match import Match
 from app.models.registration import Registration
 from app.models.team import Team
 from app.models.user import User
-from app.schemas.match import (
-    GameSessionOut,
-    MatchDetailOut,
-    MatchOut,
-    MatchResultIn,
-    MatchStartIn,
-)
+from app.schemas.match import MatchDetailOut, MatchOut, MatchResultIn, MatchStartIn
 from app.services import match_service
 
 router = APIRouter()
 
-# demo 导出日志的 victory 事件文本 -> 阵营映射（守护者=participant_a=红方，
-# 掠夺者=participant_b=蓝方）。
+# demo 导出日志的胜负事件文本 -> 阵营映射。
+# 约定（用户确认）：守护者=defender=蓝方=participant_b；掠夺者=attacker=红方
+# =participant_a。比赛页面统一标注「掠夺者 / 守护者」。
 _VICTORY_WINNER_MAP = {
     "守护者获胜": "defender",
     "掠夺者获胜": "attacker",
@@ -137,8 +132,6 @@ def _match_out(db: Session, match: Match) -> MatchOut:
         update={
             "participant_a_name": a_name,
             "participant_b_name": b_name,
-            # 玩法插件 registry key，供前端 MatchPlay 按名解析玩法组件。
-            "gameplay_plugin": db.get(Competition, match.competition_id).gameplay_plugin,
         }
     )
 
@@ -204,7 +197,16 @@ def _extract_scores_and_winner(
     score_b: float | None,
     winner: str | None,
 ) -> tuple[dict[str, float | None], str | None]:
-    """比分/胜者：显式表单字段优先；缺失项从最后一条 victory 事件文本解析。
+    """比分/胜者：显式表单字段优先；缺失项按 demo 导出格式从事件文本解析。
+
+    demo 控制器（D:\\myproject1\\demo，见 demo/docs/AGENTS.md）导出格式：
+    - 正常结束（超时）：``type="system"``，文本形如
+      ``游戏结束 - 守护者获胜 (守85 : 掠72)`` / ``游戏结束 - 掠夺者获胜 …``
+      / ``游戏结束 - 平局 (守80 : 掠80)`` —— 胜者关键字 + 「守x : 掠y」比分。
+      阵营约定（用户确认）：守护者=defender=蓝方=participant_b，
+      掠夺者=attacker=红方=participant_a。
+    - 顶端直胜：``type="victory"``，文本 ``进攻方顶端直胜！直接获胜`` ——
+      进攻方（掠夺者/attacker）获胜，事件文本不含比分。
 
     返回 ({"defender": float|None, "attacker": float|None}, winner)，
     winner 为 "defender" | "attacker" | "draw" | None。
@@ -213,38 +215,59 @@ def _extract_scores_and_winner(
     win = winner.strip() if winner else None
     if win is not None and win not in ("defender", "attacker", "draw"):
         raise ValueError("winner 字段仅接受 defender / attacker / draw")
-    for ev in reversed(events):
-        if ev.get("type") != "victory":
-            continue
-        text = ev.get("text", "")
+
+    # 反向扫描全部事件（不再限定 type）：优先找「游戏结束」事件。
+    end_event = next(
+        (ev for ev in reversed(events) if "游戏结束" in ev.get("text", "")),
+        None,
+    )
+    if end_event is not None:
+        text = end_event["text"]
         if win is None:
             m = re.search(r"(守护者获胜|掠夺者获胜|平局)", text)
             if m:
                 win = _VICTORY_WINNER_MAP[m.group(1)]
         if scores["defender"] is None or scores["attacker"] is None:
-            m = re.search(r"(\d+(?:\.\d+)?)\s*[:：]\s*(\d+(?:\.\d+)?)", text)
+            m = re.search(r"守\s*(\d+(?:\.\d+)?)\s*[:：]\s*掠\s*(\d+(?:\.\d+)?)", text)
+            if m is None:
+                m = re.search(r"(\d+(?:\.\d+)?)\s*[:：]\s*(\d+(?:\.\d+)?)", text)
             if m:
                 if scores["defender"] is None:
                     scores["defender"] = float(m.group(1))
                 if scores["attacker"] is None:
                     scores["attacker"] = float(m.group(2))
-        break
+
+    # 顶端直胜：victory 事件文本「顶端直胜/直接获胜」→ 进攻方获胜（无比分）。
+    if win is None:
+        vict = next(
+            (ev for ev in reversed(events) if ev.get("type") == "victory"),
+            None,
+        )
+        if vict is not None and (
+            "顶端直胜" in vict.get("text", "") or "直接获胜" in vict.get("text", "")
+        ):
+            win = "attacker"
     return scores, win
 
 
 def _apply_sync_result(match: Match, scores: dict, win: str | None) -> None:
     """sync=true：把解析出的比分/胜者预填进 match.result。
 
+    阵营映射（用户确认）：守护者=defender=participant_b（蓝方），
+    掠夺者=attacker=participant_a（红方）；页面统一标注掠夺者/守护者。
+
     仅做结果预填（供前端展示/人工微调），不结束对局、不触碰赛制引擎 ——
     赛程推进仍由裁判 POST /result 完成（避免绕开引擎导致淘汰晋级漂移）。
     """
     result = dict(match.result or {})
     changed = False
-    if scores["defender"] is not None:
-        result["score_a"] = scores["defender"]
-        changed = True
+    # score_a 属于 participant_a（掠夺者/attacker），score_b 属于
+    # participant_b（守护者/defender）。
     if scores["attacker"] is not None:
-        result["score_b"] = scores["attacker"]
+        result["score_a"] = scores["attacker"]
+        changed = True
+    if scores["defender"] is not None:
+        result["score_b"] = scores["defender"]
         changed = True
     if win is not None:
         if win == "draw":
@@ -252,7 +275,7 @@ def _apply_sync_result(match: Match, scores: dict, win: str | None) -> None:
             result["is_draw"] = True
         else:
             result["winner"] = (
-                match.participant_a if win == "defender" else match.participant_b
+                match.participant_b if win == "defender" else match.participant_a
             )
             result["is_draw"] = False
         result.setdefault("score_a", 0.0)
@@ -289,25 +312,9 @@ def get_match_detail(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """单局详情（任意登录用户）：对局信息 + 玩法会话状态（若已开赛）。"""
+    """单局详情（任意登录用户）：对局信息 + 已导入的玩法日志。"""
     match = _get_match_or_404(db, match_id)
-    session = (
-        db.query(GameSession)
-        .filter(GameSession.match_id == match_id)
-        .order_by(GameSession.id.desc())
-        .first()
-    )
-    session_out = None
-    if session is not None:
-        session_out = GameSessionOut(
-            id=session.id,
-            match_id=session.match_id,
-            plugin_name=session.plugin_name,
-            state=session.state_json,
-            started_at=session.started_at,
-            ended_at=session.ended_at,
-        )
-    return MatchDetailOut(match=_match_out(db, match), session=session_out)
+    return MatchDetailOut(match=_match_out(db, match))
 
 
 @router.post("/api/matches/{match_id}/start")

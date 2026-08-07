@@ -5,9 +5,8 @@
 - GET  /api/points/leaderboard   任意登录用户：按用户聚合的全局榜（?kind= 过滤）
 - POST /api/admin/points         仅 admin：发放活动/手动积分（写审计日志）
 
-流水只能由管理员手动发放产生（比赛结束不再自动结算；competition 类仅
-由保留的 settle_competition_points 供手动/测试调用），无直接改库端点
-（plan.md todo 17 Must NOT）。
+积分只能由管理员手动发放产生（kind=activity/manual；比赛结束不自动结算、
+无系统结算入口，issue 6 用户确认），无直接改库端点。
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -69,7 +68,7 @@ def grant_points(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    """管理员发放活动/手动积分（competition 类仅系统结算产生）。
+    """管理员发放活动/手动积分（积分唯一来源，仅 admin）。
 
     校验目标用户存在；落库后写审计日志 action="points_grant"。
     """

@@ -39,33 +39,6 @@ def test_unknown_user_failures_also_lock_and_423(client):
     assert resp.status_code == 423
 
 
-def test_locked_account_appears_in_admin_locked(client, admin_client):
-    _register(client)
-    _wrong_logins(client, "player1", 5)
-
-    resp = admin_client.get("/api/admin/traffic/locked")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert len(data) == 1
-    assert data[0]["username"] == "player1"
-    assert "locked_until" in data[0]
-    assert data[0]["remaining_seconds"] > 0
-
-
-def test_admin_patch_status_unlocks_account(client, admin_client):
-    _register(client)
-    _wrong_logins(client, "player1", 5)
-    assert lockout.is_locked("player1")
-
-    user = next(u for u in admin_client.get("/api/admin/users").json() if u["username"] == "player1")
-    resp = admin_client.patch(f"/api/admin/users/{user['id']}", json={"status": "active"})
-    assert resp.status_code == 200
-
-    assert not lockout.is_locked("player1")
-    resp = client.post("/api/auth/login", json={"username": "player1", "password": "secret123"})
-    assert resp.status_code == 200
-
-
 def test_lockout_expires_after_timeout(client, monkeypatch):
     monkeypatch.setattr(lockout, "LOCKOUT_SECONDS", 0)
     _register(client)

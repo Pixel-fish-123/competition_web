@@ -9,19 +9,19 @@
 ```
 frontend/
 ├── vite.config.ts          # dev 代理 /api 与 /ws(ws:true) → http://127.0.0.1:8000
+│                           # port 5173 + strictPort（占用即报错，防"两个前端"假象，issue 2）
 ├── tsconfig*.json          # 严格 lint（见 CONVENTIONS）
 ├── src/
 │   ├── main.ts             # createApp + Pinia + Router + ElementPlus(zhCn)
-│   ├── router/index.ts     # createWebHistory + 全局 beforeEach 守卫
+│   ├── router/index.ts     # createWebHistory + 全局 beforeEach 守卫（/admin/* 仅 admin；无 plugins 路由）
 │   ├── api/http.ts         # axios 单例，baseURL /api，401/403/429 拦截
 │   ├── stores/auth.ts      # AuthUser + fetchMe/login/register/updateNickname/logout
-│   ├── stores/index.ts     # 空占位（业务 store 未建）
 │   ├── views/              # 页面（见 src/views/AGENTS.md）
-│   └── plugins/triangle-occupy/  # 玩法前端组件（TriangleBoard/TriangleControls）
+│   └── components/         # ScheduleChart.vue 等公共组件
 ```
 
 ## ROUTING & GUARD
-- `router/index.ts`：`createWebHistory()`；路由含 `/`、`/login`、`/competitions`、`/competitions/:cid`、`/competitions/:cid/matches/:mid`、`/rankings`、`/profile`（`meta.requiresAuth`）、`/admin`（AdminLayout + 5 子路由，redirect `/admin/users`）。
+- `router/index.ts`：`createWebHistory()`；路由含 `/`、`/login`、`/competitions`、`/competitions/:cid`、`/competitions/:cid/matches/:mid`、`/rankings`、`/profile`（`meta.requiresAuth`）、`/admin`（AdminLayout + 4 子路由：users/competitions/points/traffic，redirect `/admin/users`；玩法模块已删，issue 16）。
 - 全局 `beforeEach`：先 `if (!auth.loaded) await auth.fetchMe()` 确保会话，再分流：
   - `/login` 且已登录 → 跳 `/`。
   - `to.path.startsWith('/admin')` 且 `role !== 'admin'` → 跳 `/`。
@@ -39,7 +39,8 @@ frontend/
 - **无单元测试**，质量保障 = `npm run build`（`vue-tsc -b` + `vite build`）。
 
 ## TRAPS
-- **前端插件化半成品**：`MatchPlay.vue` 硬编码 `import { TriangleBoard, TriangleControls } from '../plugins/triangle-occupy'`，未按插件名动态解析组件；新增玩法需手改 MatchPlay。
-- `stores/index.ts` 是空占位，业务 store 尚未建立。
-- `Competitions.vue` 页面目前是空壳（仅标题），列表逻辑在 `Home.vue`。
-- 代理仅 dev 生效；生产由后端托管 `frontend-dist/`（与 README 的 `frontend/dist` 需对齐，见根 AGENTS.md NOTES）。
+- **阵营标注约定（用户确认）**：participant_a = 掠夺者（进攻方/attacker），participant_b = 守护者（防守方/defender）；页面统一标注「掠夺者 / 守护者」，不写红/蓝。
+- `MatchPlay.vue` 对局判定流程：结束比赛 → 内联判定面板（导入日志自动判定 → 人工可微调 → 保存结果）→ POST /result `lock:true` 锁定；锁定后（`result_locked`）只读不可改（issue 14）。
+- `Home.vue` 纯动图：轮播只播放动画，无任何交互按钮（issue 17）。
+- `admin/Competitions.vue` 新建/编辑表单仅保留：名称/描述/头图URL/参赛形式（个人/混合）/赛制（瑞士/单败）/裁判/人数上限（issue 6）；删除按钮任意状态可用（issue 1）；进行中比赛有「强制结束」按钮（issue 8）。
+- 代理仅 dev 生效；生产由后端托管 `frontend/dist`（main.py，SPA 深链回退 index.html）。

@@ -139,7 +139,7 @@
             保存结果
           </el-button>
         </div>
-        <div class="match-play__lock-hint">保存结果不会锁定；本轮全部结束后可在比赛详情页「锁定最新一轮」</div>
+        <div class="match-play__lock-hint">保存结果不会锁定；本轮全部结束后可在比赛详情页点击「开始下一轮」并自动锁定本轮</div>
       </section>
     </div>
 
@@ -221,7 +221,7 @@
             保存结果
           </el-button>
         </div>
-        <div class="match-play__lock-hint">保存结果不会锁定；本轮全部结束后可在比赛详情页「锁定最新一轮」</div>
+        <div class="match-play__lock-hint">保存结果不会锁定；本轮全部结束后可在比赛详情页点击「开始下一轮」并自动锁定本轮</div>
       </section>
 
       <!-- 3b. 玩法日志展示（所有用户） -->
@@ -560,7 +560,7 @@ async function onSaveResult(): Promise<void> {
       score_a: resultForm.score_a,
       score_b: resultForm.score_b,
     })
-    ElMessage.success('结果已保存（本轮全部结束后可在比赛详情页锁定）')
+    ElMessage.success('结果已保存（本轮全部结束后可在比赛详情页点击「开始下一轮」锁定）')
     judgeOpen.value = false
     await loadMatch()
   } catch (e: unknown) {

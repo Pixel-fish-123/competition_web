@@ -99,7 +99,7 @@ def _get_matches(client, competition_id):
 def _play_all_matches(client, referee_token, competition_id):
     """Referee starts + records a win for participant_a in every match.
 
-    循环直到无未完成对局：瑞士轮逐轮物化，打完一轮下一轮自动落地；
+    循环直到无未完成对局：每轮打完调用「开始下一轮」（锁定本轮+物化下一轮）；
     单败淘汰后续轮次的参赛者在 start 时由引擎解析回写，须 start 后重新
     拉取该局详情再提交结果（不能用列表里的旧 participant_a=None）。
     """
@@ -118,6 +118,12 @@ def _play_all_matches(client, referee_token, competition_id):
                 json={"winner": detail["participant_a"]},
             )
             assert result.status_code == 200, result.text
+        # 本轮全部打完：结束本轮（锁定 + 推进下一轮）。
+        for rid in {m["round_id"] for m in pending}:
+            resp = client.post(
+                f"/api/competitions/{competition_id}/rounds/{rid}/complete", json={}
+            )
+            assert resp.status_code == 200, resp.text
 
 
 def _run_individual_competition(client, admin_client, **overrides):

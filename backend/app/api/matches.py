@@ -451,6 +451,44 @@ def reset_latest_round(
     }
 
 
+@router.post("/api/competitions/{competition_id}/rounds/{round_id}/complete")
+def complete_round(
+    competition_id: int,
+    round_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    staff: User = Depends(require_referee),
+):
+    """结束本轮（「开始下一轮」按钮）：锁定本轮全部结果 + 推进下一轮。
+
+    瑞士轮下一轮在本轮锁定后才物化（配对基于最终锁定结果，消除竞态）；
+    最后一轮返回 next_round_id=None（仅锁定）。
+    """
+    competition = _get_competition_or_404(db, competition_id)
+    locked, next_round_id = match_service.complete_round(db, competition, round_id, staff)
+    ip, user_agent = _request_meta(request)
+    log_audit(
+        db,
+        staff.id,
+        "round_complete",
+        ip,
+        user_agent,
+        {
+            "competition_id": competition_id,
+            "round_id": round_id,
+            "locked": locked,
+            "next_round_id": next_round_id,
+        },
+    )
+    return {
+        "ok": True,
+        "competition_id": competition_id,
+        "round_id": round_id,
+        "locked": locked,
+        "next_round_id": next_round_id,
+    }
+
+
 @router.post("/api/matches/{match_id}/gameplay-log")
 def import_gameplay_log(
     match_id: int,

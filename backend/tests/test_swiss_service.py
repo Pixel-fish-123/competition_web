@@ -144,24 +144,36 @@ def test_swiss_ongoing_materializes_round_1_only(admin_client):
     assert all(m["status"] == "pending" for m in matches)
 
 
-def test_swiss_last_round1_result_materializes_round2(admin_client):
-    """round 1 最后一局记分后，round 2 对局自动物化（GET /matches 可见），
+def test_round1_complete_locks_and_materializes_round2(admin_client):
+    """结束本轮（「开始下一轮」）：锁定 round 1 结果，之后 round 2 才物化，
     且其 engine_match_id 与确定性重建引擎一致（防 stale match_id）。"""
     comp_id, referee_token = _seed_swiss(admin_client, count=4)
     r1 = _get_matches(admin_client, comp_id)
     assert len(r1) == 2
 
-    # Play only the first round-1 match: round 2 must NOT appear yet.
+    # 只打完第一场：round 2 不得出现。
     _play_match(admin_client, referee_token, r1[0], r1[0]["participant_a"])
     after_first = _get_matches(admin_client, comp_id)
     assert {m["round_id"] for m in after_first} == {1}
 
-    # Play the last round-1 match -> round 2 materializes.
+    # 全部打完但未点「开始下一轮」：round 2 仍不出现。
     _play_match(admin_client, referee_token, r1[1], r1[1]["participant_a"])
+    matches = _get_matches(admin_client, comp_id)
+    assert {m["round_id"] for m in matches} == {1}
+
+    # 点击「开始下一轮」：锁定本轮 + 物化 round 2。
+    resp = admin_client.post(f"/api/competitions/{comp_id}/rounds/1/complete", json={})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["locked"] == 2
+    assert resp.json()["next_round_id"] == 2
+
     matches = _get_matches(admin_client, comp_id)
     assert {m["round_id"] for m in matches} == {1, 2}
     r2_rows = [m for m in matches if m["round_id"] == 2]
     assert len(r2_rows) == 2
+    for m in r1:
+        detail = admin_client.get(f"/api/matches/{m['id']}").json()
+        assert detail["match"]["result_locked"] is True
     # Round 2 does not repeat round-1 opponents.
     r1_pairs = {frozenset((m["participant_a"], m["participant_b"])) for m in r1}
     r2_pairs = {frozenset((m["participant_a"], m["participant_b"])) for m in r2_rows}
@@ -189,6 +201,8 @@ def test_swiss_round2_bye_auto_finished(admin_client):
 
     r1 = _get_matches(admin_client, comp_id)
     _play_round(admin_client, referee_token, r1, lambda m: m["participant_a"])
+    resp = admin_client.post(f"/api/competitions/{comp_id}/rounds/1/complete", json={})
+    assert resp.status_code == 200, resp.text
 
     r2_rows = [m for m in _get_matches(admin_client, comp_id) if m["round_id"] == 2]
     byes = [m for m in r2_rows if m["participant_b"] is None and m["participant_a"] is not None]
@@ -217,6 +231,11 @@ def test_swiss_double_advance_creates_rows_exactly_once(admin_client):
                 .count()
             )
 
+    # 未调用 advance（未点「开始下一轮」）：round 2 尚未物化。
+    assert _count_round2() == 0
+    with SessionLocal() as db:
+        comp = db.get(Competition, comp_id)
+        match_service._advance_swiss_if_due(db, comp)  # first advance
     assert _count_round2() == 2
     with SessionLocal() as db:
         comp = db.get(Competition, comp_id)
@@ -257,15 +276,23 @@ def test_swiss_finish_rejects_unfinished_and_materializes_missing_round(admin_cl
 
 
 def test_swiss_play_all_rounds_then_finish(admin_client):
-    """4 人瑞士轮 = 3 轮 × 2 局。全部打完（含轮空自动完结）后可正常 finish。"""
+    """4 人瑞士轮 = 3 轮 × 2 局。每轮打完点「开始下一轮」，全部结束后可 finish。"""
     comp_id, referee_token = _seed_swiss(admin_client, count=4)
     admin_token = admin_client.cookies.get("token")  # capture BEFORE playing
 
-    for round_id in (1, 2, 3):
+    round_id = 1
+    while True:
         round_matches = [
             m for m in _get_matches(admin_client, comp_id) if m["round_id"] == round_id
         ]
+        if not round_matches:
+            break
         _play_round(admin_client, referee_token, round_matches, lambda m: m["participant_a"])
+        resp = admin_client.post(f"/api/competitions/{comp_id}/rounds/{round_id}/complete", json={})
+        assert resp.status_code == 200, resp.text
+        if resp.json()["next_round_id"] is None:
+            break
+        round_id = resp.json()["next_round_id"]
 
     _as_user(admin_client, admin_token)
     resp = _transition(admin_client, comp_id, "finished")

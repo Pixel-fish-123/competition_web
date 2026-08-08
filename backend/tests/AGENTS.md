@@ -16,7 +16,7 @@
 ## DATA-SEEDING PATTERNS
 - **混合模式**：用户注册/报名走 API（`client` 自动登录）；审批/角色翻转**直插 DB**（`SessionLocal` 直写 `status="approved"` / `role`）。
 - `_seed_players_and_approve` 在 `test_matches` / `test_points` / `test_rankings` / `test_ws` 重复定义，**未共享到 conftest**（已知重复，勿误以为缺失而重构）。
-- **打完全部对局**：`_play_all_matches` 是循环实现（拉到无未完成对局为止）——瑞士轮逐轮物化，单败后续轮次 start 后需重新 GET 详情取解析出的 participant_a 再提交 result。
+- **打完全部对局**：`_play_all_matches` 是循环实现（拉到无未完成对局为止）——瑞士轮逐轮物化（打完一轮后调用 `/rounds/{id}/complete`「开始下一轮」），单败后续轮次 start 后需重新 GET 详情取解析出的 participant_a 再提交 result。
 - 私有 helper 一律 `_` 前缀。
 
 ## KEY AREAS（本轮新增/改动）

@@ -143,10 +143,12 @@ def lock_round(
     competition: Competition,
     round_id: int,
     staff: User,
+    commit: bool = True,
 ) -> int:
     """按轮次锁定：该轮全部真实对局结束后才能锁定整轮结果。
 
-    返回被锁定的对局数。已锁定的对局保持锁定（幂等）。
+    返回被锁定的对局数。已锁定的对局保持锁定（幂等）。``commit=False``
+    时由调用方统一收尾（complete_round 单事务原子提交）。
     """
     _require_assigned_referee(competition, staff)
     real_matches = _round_real_matches(db, competition, round_id)
@@ -161,8 +163,54 @@ def lock_round(
         if not match.result_locked:
             match.result_locked = True
             locked += 1
-    db.commit()
+    if commit:
+        db.commit()
     return locked
+
+
+def complete_round(
+    db: Session,
+    competition: Competition,
+    round_id: int,
+    staff: User,
+) -> tuple[int, int | None]:
+    """结束本轮（「开始下一轮」按钮）：锁定本轮全部结果 + 推进下一轮。
+
+    瑞士轮下一轮在锁定后才物化（先锁定、后按最终结果生成配对，避免
+    下一轮已生成却还能改本轮结果的竞态 bug）；单败淘汰完整赛程已在排表时
+    落地，本轮锁定后下一轮直接可开赛。
+
+    只允许结束最新一轮（防止绕开 UI 直接补锁旧轮导致后续轮次配对基于
+    未锁定结果）；锁定与推进在同一事务提交，失败时整体回滚、可重试。
+
+    返回 (locked_count, next_round_id)；next_round_id 为 None 表示已是最后一轮。
+    """
+    _require_assigned_referee(competition, staff)
+
+    latest = (
+        db.query(Match)
+        .filter(Match.competition_id == competition.id)
+        .order_by(Match.round_id.desc())
+        .first()
+    )
+    if latest is None or latest.round_id != round_id:
+        raise HTTPException(status_code=400, detail="只能结束最新一轮")
+
+    locked = lock_round(db, competition, round_id, staff, commit=False)
+    if competition.tournament_format == "swiss":
+        # 上一轮已锁定并提交结果，引擎回放后把下一轮物化进 DB（不单独提交）。
+        _advance_swiss_if_due(db, competition, commit=False)
+    db.commit()
+    next_round = (
+        db.query(Match.round_id)
+        .filter(
+            Match.competition_id == competition.id,
+            Match.round_id > round_id,
+        )
+        .order_by(Match.round_id.asc())
+        .first()
+    )
+    return locked, (next_round[0] if next_round else None)
 
 
 def reset_latest_round(
@@ -290,13 +338,15 @@ def _materialize_round(
     return matches
 
 
-def _advance_swiss_if_due(db: Session, competition: Competition) -> None:
+def _advance_swiss_if_due(db: Session, competition: Competition, commit: bool = True) -> None:
     """把瑞士轮"上一轮已完结、下一轮未落地"的轮次补进 DB（幂等）。
 
     必须在结果 commit 之后调用：本函数重建引擎 + 回放已完成对局（能看到
     刚提交的结果），引擎内部逐局调用 generate_next_round 推进轮次，再把引擎
     中尚无 DB 行的轮次物化，最后单次 commit 收尾。重复调用 / 并发触发安全
     （_materialize_round 幂等），修复崩溃/竞态下漏物化的轮次。
+
+    ``commit=False`` 时跳过收尾提交（complete_round 单事务原子提交用）。
     """
     if competition.tournament_format != "swiss":
         return
@@ -306,7 +356,8 @@ def _advance_swiss_if_due(db: Session, competition: Competition) -> None:
     _replay_finished(db, competition, engine)
     for round_plan in engine.generate_schedule():
         _materialize_round(db, competition, round_plan)
-    db.commit()
+    if commit:
+        db.commit()
 
 
 def build_schedule_for_competition(
@@ -535,11 +586,4 @@ def record_match_result(
             "status": "finished",
         },
     )
-
-    # 瑞士轮：最后一局结果提交后，把下一轮对局物化进 DB。post-commit 的
-    # fresh-check（非同一事务内）是刻意的 —— 重建引擎能看到刚提交的结果，
-    # 且并发裁判同时提交时，后到者的 advance 会因 _materialize_round 幂等
-    # 而只创建一轮对局。
-    if competition.tournament_format == "swiss":
-        _advance_swiss_if_due(db, competition)
     return match

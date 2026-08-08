@@ -138,19 +138,18 @@
             class="comp-detail__round-actions"
           >
             <el-button
+              v-if="latestRoundFinished && !latestRoundLocked"
               size="small"
-              type="success"
-              plain
-              :disabled="!latestRoundFinished"
-              :loading="lockingRound"
-              @click="onLockLatestRound"
+              type="warning"
+              :loading="completingRound"
+              @click="onCompleteLatestRound"
             >
-              锁定最新一轮
+              开始下一轮
             </el-button>
             <el-button
               size="small"
-              type="warning"
               plain
+              :disabled="latestRoundLocked"
               :loading="resettingRound"
               @click="onResetLatestRound"
             >
@@ -226,6 +225,7 @@ interface MatchInfo {
   participant_b_name?: string | null
   status: string
   result: Record<string, any> | null
+  result_locked: boolean
 }
 
 interface RoundGroup {
@@ -265,10 +265,10 @@ const myTeam = ref<TeamInfo | null>(null)
 const registering = ref(false)
 const withdrawing = ref(false)
 const reviewingId = ref<number | null>(null)
-const lockingRound = ref(false)
+const completingRound = ref(false)
 const resettingRound = ref(false)
 
-// 最新一轮及其真实对局是否全部结束（用于「锁定最新一轮」按钮可用态）。
+// 最新一轮及其真实对局是否全部结束 / 是否已锁定。
 const latestRound = computed(() => {
   if (rounds.value.length === 0) return null
   return [...rounds.value].sort((a, b) => b.round_id - a.round_id)[0]
@@ -278,6 +278,11 @@ const latestRoundFinished = computed(() => {
   if (!round) return false
   const real = round.matches.filter((m) => m.participant_b !== null)
   return real.length > 0 && real.every((m) => m.status === 'finished')
+})
+const latestRoundLocked = computed(() => {
+  const round = latestRound.value
+  if (!round) return false
+  return round.matches.some((m) => m.result_locked)
 })
 
 // 是否已报名：个人报名匹配 user_id；队伍报名匹配 team_id（报名行存队长
@@ -357,7 +362,7 @@ const formatSummary = computed(() => {
   return `赛制：${f}`
 })
 
-function goMatch(m: MatchInfo) {
+function goMatch(m: { id: number }) {
   router.push(`/competitions/${cid.value}/matches/${m.id}`)
 }
 
@@ -470,21 +475,25 @@ async function reviewRegistration(rid: number, action: 'approve' | 'reject') {
   }
 }
 
-async function onLockLatestRound() {
+async function onCompleteLatestRound() {
   const round = latestRound.value
   if (!round) return
-  lockingRound.value = true
+  completingRound.value = true
   try {
-    const { data } = await http.post<{ locked: number }>(
-      `/competitions/${cid.value}/rounds/${round.round_id}/lock`,
+    const { data } = await http.post<{ locked: number; next_round_id: number | null }>(
+      `/competitions/${cid.value}/rounds/${round.round_id}/complete`,
     )
-    ElMessage.success(`已锁定本轮 ${data.locked} 场对局结果`)
+    if (data.next_round_id === null) {
+      ElMessage.success(`已锁定本轮 ${data.locked} 场结果，所有轮次已结束`)
+    } else {
+      ElMessage.success(`已锁定本轮 ${data.locked} 场结果，第 ${data.next_round_id} 轮已生成`)
+    }
     await loadMatches()
     await loadRankings()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '锁定失败')
+    ElMessage.error(e?.response?.data?.detail || '操作失败')
   } finally {
-    lockingRound.value = false
+    completingRound.value = false
   }
 }
 

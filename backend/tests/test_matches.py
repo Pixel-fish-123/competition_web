@@ -171,7 +171,7 @@ def test_full_lifecycle_start_result_finish(admin_client):
 def test_play_all_matches_then_finish_competition(admin_client):
     """Engine advances through every match; finished guard passes at the end.
 
-    瑞士轮逐轮物化：循环打到无未完成对局为止。
+    每轮打完点「开始下一轮」（锁定本轮 + 物化下一轮），循环到无未完成对局。
     """
     admin_token = admin_client.cookies.get("token")
     referee_id, referee_token = _make_referee(admin_client, admin_token)
@@ -196,6 +196,11 @@ def test_play_all_matches_then_finish_competition(admin_client):
             assert result.status_code == 200, result.text
             assert result.json()["status"] == "finished"
             assert result.json()["result_type"] == "win"
+        for rid in {m["round_id"] for m in pending}:
+            resp = admin_client.post(
+                f"/api/competitions/{comp_id}/rounds/{rid}/complete", json={}
+            )
+            assert resp.status_code == 200, resp.text
 
     # All matches finished -> competition can be finished.
     _as_user(admin_client, admin_token)
@@ -484,6 +489,37 @@ def test_round_lock_endpoint(admin_client):
     for m in round1:
         detail = admin_client.get(f"/api/matches/{m['id']}").json()
         assert detail["match"]["result_locked"] is True
+
+
+def test_complete_round_only_latest_allowed(admin_client):
+    """需求 4：complete_round 只允许结束最新一轮（补锁旧轮 400）。"""
+    admin_token = admin_client.cookies.get("token")
+    referee_id, referee_token = _make_referee(admin_client, admin_token)
+    comp_id = _create_ok(admin_client, referee_ids=[referee_id])
+    assert _transition(admin_client, comp_id, "registration").status_code == 200
+    _seed_players_and_approve(admin_client, admin_token, comp_id, 4)
+    assert _transition(admin_client, comp_id, "ongoing").status_code == 200
+
+    round1 = [m for m in _get_matches(admin_client, comp_id) if m["round_id"] == 1]
+    _as_user(admin_client, referee_token)
+    for m in round1:
+        assert admin_client.post(f"/api/matches/{m['id']}/start", json={}).status_code == 200
+        assert (
+            admin_client.post(
+                f"/api/matches/{m['id']}/result",
+                json={"winner": m["participant_a"], "is_draw": False, "score_a": 1, "score_b": 0},
+            ).status_code
+            == 200
+        )
+    # 结束第 1 轮 -> 第 2 轮物化，此时第 1 轮不再是「最新一轮」。
+    resp = admin_client.post(f"/api/competitions/{comp_id}/rounds/1/complete", json={})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["next_round_id"] == 2
+
+    # 再次补锁第 1 轮 -> 400。
+    resp = admin_client.post(f"/api/competitions/{comp_id}/rounds/1/complete", json={})
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "只能结束最新一轮"
 
 
 def test_reset_latest_round(admin_client):

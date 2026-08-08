@@ -17,18 +17,25 @@ start_match（裁判开赛）
   → 单败淘汰后续轮次参赛者未知：_rebuild_engine + _replay_finished → engine._resolve_participants
   → match.status=in_progress → manager.broadcast {"type": "match_started", "match_id"}
 
-record_match_result（裁判记分，issue 14）
+record_match_result（裁判记分，issue 14；按轮次锁定，用户确认）
   → 单败淘汰禁平局（Metis E1，payload.is_draw 直接 400）
   → result_locked 的对局直接 400「结果已锁定，无法更改」
+  → lock=true 仅当本轮全部真实对局结束后接受，否则 400
   → _rebuild_engine + _replay_finished → engine.record_result → 落库 finished
-  → payload.lock=true 时置 result_locked（保存结果后不可再改）
+  → 不再自动物化下一轮（下一轮由 complete_round「开始下一轮」显式生成）
   → manager.broadcast {"type": "score_update", ...}
-  → swiss：_advance_swiss_if_due 物化下一轮（不足 2 名参赛者时跳过，空比赛 finish 放行）
+
+complete_round（「开始下一轮」：锁定本轮 + 推进下一轮）
+  → 仅允许结束最新一轮（防止旧轮配对基于未锁定结果）
+  → lock_round（本轮全部真实对局结束才可锁）→ swiss：_advance_swiss_if_due
+    → 锁定与推进同一事务提交（commit=False 参数），失败整体回滚可重试
+  → 返回 (locked_count, next_round_id)；最后一轮 next_round_id=None
 
 _advance_swiss_if_due（瑞士轮逐轮物化）
   → 仅 swiss；参赛者 < 2 直接 return
   → _rebuild_engine + _replay_finished（能看到刚提交的结果）→ 引擎逐轮
     generate_next_round → _materialize_round 幂等落库 → 单次 commit
+    （complete_round 内部传 commit=False，由外层统一提交）
 ```
 
 ## KEY FUNCTIONS
@@ -36,7 +43,8 @@ _advance_swiss_if_due（瑞士轮逐轮物化）
 |------|------|------|
 | `build_schedule_for_competition` | match_service | 不足 2 名 approved 返回空赛程；轮空直接 finished 记 win |
 | `start_match` | match_service | 校验裁判归属 → in_progress → 广播 match_started |
-| `record_match_result` | match_service | 锁定校验 → 单败禁平局 → 引擎 record_result → 落库 + lock 标记 + 广播 |
+| `record_match_result` | match_service | 锁定校验（lock 需本轮全部结束）→ 单败禁平局 → 引擎 record_result → 落库 + lock 标记 + 广播 |
+| `lock_round` / `complete_round` | match_service | 按轮次锁定 / 「开始下一轮」（锁定+物化下一轮，单事务，仅限最新一轮） |
 | `_approved_participant_ids` | match_service | 已批准报名 id 升序（确定性 seed 顺序） |
 | `_build_engine` | match_service | 按 tournament_format 实例化引擎（swiss/single_elim）；格式非法抛 ValueError |
 | `_rebuild_engine` / `_replay_finished` | match_service | 重建引擎 + 按 Match.id 升序回放已完结对局（abandoned/轮空行天然跳过） |

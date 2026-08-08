@@ -200,7 +200,8 @@ def test_generate_next_round_gating():
 def test_five_players_one_bye_per_round_no_double_bye():
     """5 players / config {} → 4 rounds (min(ceil(log2(5))+1, 7)). Each round
     has exactly one bye, no participant receives a second bye (4 byes over 5
-    players), and a bye counts as 1 point / 0 net in standings."""
+    players). 比赛未开始（尚无任何真实对局结果）时轮空不计分（0/0/0）；
+    出现第一场真实结果后轮空才计 1 分 / 0 净分。"""
     engine = SwissEngine([1, 2, 3, 4, 5], {})
     assert engine._rounds == 4
 
@@ -214,20 +215,39 @@ def test_five_players_one_bye_per_round_no_double_bye():
         bye_recipients.append(recipient)
         assert len([m for m in plan.matches if not m.is_bye]) == 2
         if round_number == 1:
-            # Round-1 bye recipient has no real matches yet → bye = 1 / 0 net.
+            # 比赛未开始（无真实结果）：轮空不计分。
             by_id = {row.participant_id: row for row in engine.standings()}
-            assert by_id[recipient].wins == 1.0
-            assert by_id[recipient].net_score == 0.0
+            assert by_id[recipient].wins == 0.0
+            assert by_id[recipient].points == 0.0
         _record_round(engine, round_number, lambda a, b: min(a, b))
 
     assert len(bye_recipients) == 4
     assert set(bye_recipients) <= set(range(1, 6))
 
-    # Every bye recipient keeps at least the one point the bye awarded (they
-    # may have won/lost real matches in other rounds on top of it).
+    # 出现真实结果后，轮空正常计 1 分（每个轮空受益者至少 1 胜）。
     by_id = {row.participant_id: row for row in engine.standings()}
     for pid in bye_recipients:
         assert by_id[pid].wins >= 1.0
+
+
+def test_bye_counts_only_after_first_real_result():
+    """需求 3：比赛未开始时轮空不得加分 —— 轮空计分以「至少一场真实对局
+    产生结果」为门槛；第一场真实结果落地后轮空立即计 1 胜 / 1 分。"""
+    engine = SwissEngine([1, 2, 3, 4, 5], {})
+    r1 = engine.generate_schedule()[0]
+    bye = next(m for m in r1.matches if m.is_bye)
+    real = next(m for m in r1.matches if not m.is_bye)
+
+    # 未开始：全 0。
+    by_id = {row.participant_id: row for row in engine.standings()}
+    assert by_id[bye.participant_a].wins == 0.0
+    assert by_id[bye.participant_a].points == 0.0
+
+    # 记入第一场真实结果后：轮空计 1 胜 / 1 分。
+    engine.record_result(real.match_id, MatchResult(winner=real.participant_a))
+    by_id = {row.participant_id: row for row in engine.standings()}
+    assert by_id[bye.participant_a].wins == 1.0
+    assert by_id[bye.participant_a].points == 1.0
 
 
 def test_bye_goes_to_lowest_ranked_each_round():

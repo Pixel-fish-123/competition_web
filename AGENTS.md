@@ -7,7 +7,7 @@
 - Backend entrypoint: `backend/app/main.py` (`app.main:app`). Frontend entrypoint: `frontend/src/main.ts`.
 
 ## Commands
-- One-time/local Windows startup from the repository root: `powershell -ExecutionPolicy Bypass -File start.ps1`. It creates `backend/.venv`, installs missing dependencies, runs the idempotent seed, checks ports, and starts both services.
+- One-time/local Windows startup from the repository root: `powershell -ExecutionPolicy Bypass -File start.ps1`. It creates `backend/.venv`, installs missing dependencies, skips seed data by default, checks that occupied port 8000 is this backend, and starts both services. Add `-Seed` only for a fresh demo database.
 - Backend setup/run from `backend/`: `python -m venv .venv`, `.venv\Scripts\python.exe -m pip install -r requirements.txt`, `.venv\Scripts\python.exe seed.py`, then `.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000`.
 - Backend tests from `backend/`: `.venv\Scripts\python.exe -m pytest tests -q`.
 - Focused backend test: `.venv\Scripts\python.exe -m pytest tests\test_ws.py -q`; tournament-only tests live under `tests/test_tournaments/`.

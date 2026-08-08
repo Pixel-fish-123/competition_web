@@ -43,7 +43,7 @@ def test_register_short_password_returns_422(client):
 
 
 def test_register_short_username_returns_422(client):
-    resp = client.post("/api/auth/register", json=_register_payload(username="ab"))
+    resp = client.post("/api/auth/register", json=_register_payload(username="a"))
     assert resp.status_code == 422
 
 

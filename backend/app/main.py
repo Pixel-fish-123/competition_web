@@ -6,18 +6,22 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import text
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 # Import the ORM models so Base.metadata knows about them for create_all.
 import app.models.announcement  # noqa: F401
 import app.models.audit_log  # noqa: F401
 import app.models.competition  # noqa: F401
+import app.models.ip_ban  # noqa: F401
 import app.models.match  # noqa: F401
 import app.models.point  # noqa: F401
 import app.models.registration  # noqa: F401
 import app.models.team  # noqa: F401
 import app.models.user  # noqa: F401
+from app.api.admin_ipban import router as admin_ipban_router
+from app.api.admin_teams import router as admin_teams_router
 from app.api.admin_traffic import router as admin_traffic_router
 from app.api.admin_users import router as admin_users_router
 from app.api.announcements import router as announcements_router
@@ -31,8 +35,9 @@ from app.api.registrations import router as registrations_router
 from app.api.teams import router as teams_router
 from app.api.ws import router as ws_router
 from app.core.csrf import CSRFMiddleware
+from app.core.ip_ban import is_banned, load_blacklist
 from app.core.ratelimit import limiter
-from app.db import Base, engine
+from app.db import Base, SessionLocal, engine
 
 
 def _ensure_schema_upgrades() -> None:
@@ -72,6 +77,9 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     # 旧库 schema 升级（create_all 只建新表，不补已存在表的列）。
     _ensure_schema_upgrades()
+    # IP 黑名单：从 DB 加载到内存（单进程部署，启动时同步一次）。
+    with SessionLocal() as db:
+        load_blacklist(db)
     # 摘除上一轮 lifespan 追加的 API 兜底（幂等重入），保证兜底始终排在全部
     # 真实 API 路由之后 —— 兜底匹配 /api/* 全路径，会遮蔽其后注册的任何路由。
     _drop_tail_routes(app)
@@ -84,6 +92,19 @@ async def lifespan(app: FastAPI):
     if os.path.isdir(_frontend_dist) and getattr(app.router, "_frontend_routes", None) is None:
         app.frontend("/", directory=_frontend_dist, fallback="index.html")
     yield
+
+
+class IPBanMiddleware(BaseHTTPMiddleware):
+    """黑名单 IP 全站拦截：被拉黑的 IP 所有请求返回 403（本地回环豁免）。
+
+    注册为最外层中间件（最后 add_middleware），先于 CSRF/限流拒绝。
+    """
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        client_ip = request.client.host if request.client else ""
+        if is_banned(client_ip):
+            return JSONResponse(status_code=403, content={"detail": "IP 已被封禁"})
+        return await call_next(request)
 
 
 app = FastAPI(title="萌新杯音游比赛网站", lifespan=lifespan)
@@ -116,11 +137,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+# 最后注册的中间件在最外层：IP 黑名单先于 CSRF/限流执行。
+app.add_middleware(IPBanMiddleware)
 
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(admin_users_router)
 app.include_router(admin_traffic_router)
+app.include_router(admin_teams_router)
+app.include_router(admin_ipban_router)
 app.include_router(announcements_router)
 app.include_router(teams_router)
 app.include_router(registrations_router)

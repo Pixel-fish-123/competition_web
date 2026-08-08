@@ -106,6 +106,46 @@
       </el-col>
     </el-row>
 
+    <el-card shadow="never" class="section-card">
+      <template #header>
+        <div class="card-head">
+          <span>IP 黑名单</span>
+          <div class="ban-add">
+            <el-input
+              v-model="banInput.ip"
+              placeholder="IPv4 / IPv6"
+              style="width: 160px"
+              clearable
+            />
+            <el-input
+              v-model="banInput.reason"
+              placeholder="原因（可选）"
+              style="width: 160px"
+              clearable
+            />
+            <el-button type="danger" :loading="banAdding" @click="onAddBan">拉黑</el-button>
+          </div>
+        </div>
+      </template>
+      <el-table :data="ipBans" size="small" border>
+        <el-table-column prop="ip" label="IP" min-width="160" />
+        <el-table-column prop="reason" label="原因" min-width="160" />
+        <el-table-column label="时间" min-width="170">
+          <template #default="{ row }">
+            {{ formatTime(row.created_at) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="90">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" text @click="onUnban(row)">解封</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="table-hint">
+        24h 内失败登录达到 20 次的 IP 会被自动拉黑（本地回环地址豁免）；拉黑后该 IP 全站无法访问。
+      </div>
+    </el-card>
+
     <el-card shadow="never">
       <template #header>
         <div class="card-head">
@@ -189,6 +229,16 @@ const logTotal = ref(0)
 const logPage = ref(1)
 const logPageSize = 20
 
+interface IpBanRow {
+  id: number
+  ip: string
+  reason: string
+  created_at: string | null
+}
+const ipBans = ref<IpBanRow[]>([])
+const banAdding = ref(false)
+const banInput = ref({ ip: '', reason: '' })
+
 const summaryCards = computed(() => [
   { label: '24h 登录尝试', value: summary.value.since_24h.login_attempts },
   { label: '24h 失败登录', value: summary.value.since_24h.failed_logins },
@@ -261,10 +311,57 @@ function onPageChange(page: number) {
   loadLogs()
 }
 
+async function loadIpBans() {
+  try {
+    const { data } = await http.get<IpBanRow[]>('/admin/ip-bans')
+    ipBans.value = data
+  } catch {
+    ipBans.value = []
+  }
+}
+
+async function onAddBan() {
+  const ip = banInput.value.ip.trim()
+  if (!ip) {
+    ElMessage.warning('请输入要拉黑的 IP')
+    return
+  }
+  banAdding.value = true
+  try {
+    await http.post('/admin/ip-bans', {
+      ip,
+      reason: banInput.value.reason.trim(),
+    })
+    ElMessage.success('已加入黑名单')
+    banInput.value = { ip: '', reason: '' }
+    await loadIpBans()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '拉黑失败')
+  } finally {
+    banAdding.value = false
+  }
+}
+
+async function onUnban(row: IpBanRow) {
+  try {
+    await http.delete(`/admin/ip-bans/${row.id}`)
+    ElMessage.success('已解封')
+    await loadIpBans()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '解封失败')
+  }
+}
+
+function formatTime(iso: string | null): string {
+  if (!iso) return '-'
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
+}
+
 async function loadAll() {
   loading.value = true
   try {
-    await Promise.all([loadSummary(), loadFailed(), loadLogs()])
+    await Promise.all([loadSummary(), loadFailed(), loadLogs(), loadIpBans()])
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '加载流量数据失败')
   } finally {
@@ -306,6 +403,14 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.ban-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .chart-wrap {
   display: flex;

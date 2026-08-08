@@ -85,7 +85,6 @@
       <section class="comp-detail__section">
         <h2>参赛名单</h2>
         <el-table :data="registrations" v-loading="regLoading" border stripe>
-          <el-table-column prop="id" label="ID" width="70" />
           <el-table-column label="参赛形式" width="110">
             <template #default="{ row }">
               {{ participantLabel(row.participant_type) }}
@@ -93,7 +92,7 @@
           </el-table-column>
           <el-table-column label="参赛者" min-width="160">
             <template #default="{ row }">
-              {{ row.participant_name || (row.team_id ? `队伍#${row.team_id}` : `选手#${row.user_id}`) }}
+              {{ row.participant_name || '未知' }}
             </template>
           </el-table-column>
           <el-table-column prop="status" label="状态" width="110">
@@ -132,7 +131,33 @@
 
       <!-- 赛程 / 对局列表 -->
       <section class="comp-detail__section">
-        <h2>赛程 / 对局</h2>
+        <div class="comp-detail__section-head">
+          <h2>赛程 / 对局</h2>
+          <div
+            v-if="competition.status === 'ongoing' && auth.isRefereeOrAdmin && rounds.length > 0"
+            class="comp-detail__round-actions"
+          >
+            <el-button
+              size="small"
+              type="success"
+              plain
+              :disabled="!latestRoundFinished"
+              :loading="lockingRound"
+              @click="onLockLatestRound"
+            >
+              锁定最新一轮
+            </el-button>
+            <el-button
+              size="small"
+              type="warning"
+              plain
+              :loading="resettingRound"
+              @click="onResetLatestRound"
+            >
+              重置最新一轮
+            </el-button>
+          </div>
+        </div>
         <ScheduleChart
           :rounds="rounds"
           :format="competition.tournament_format"
@@ -163,7 +188,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import http from '../api/http'
 import { useAuthStore } from '../stores/auth'
 import ScheduleChart from '../components/ScheduleChart.vue'
@@ -240,6 +265,20 @@ const myTeam = ref<TeamInfo | null>(null)
 const registering = ref(false)
 const withdrawing = ref(false)
 const reviewingId = ref<number | null>(null)
+const lockingRound = ref(false)
+const resettingRound = ref(false)
+
+// 最新一轮及其真实对局是否全部结束（用于「锁定最新一轮」按钮可用态）。
+const latestRound = computed(() => {
+  if (rounds.value.length === 0) return null
+  return [...rounds.value].sort((a, b) => b.round_id - a.round_id)[0]
+})
+const latestRoundFinished = computed(() => {
+  const round = latestRound.value
+  if (!round) return false
+  const real = round.matches.filter((m) => m.participant_b !== null)
+  return real.length > 0 && real.every((m) => m.status === 'finished')
+})
 
 // 是否已报名：个人报名匹配 user_id；队伍报名匹配 team_id（报名行存队长
 // user_id，非队长成员需靠 team_id 判断）。rejected 不算已报名。
@@ -431,6 +470,49 @@ async function reviewRegistration(rid: number, action: 'approve' | 'reject') {
   }
 }
 
+async function onLockLatestRound() {
+  const round = latestRound.value
+  if (!round) return
+  lockingRound.value = true
+  try {
+    const { data } = await http.post<{ locked: number }>(
+      `/competitions/${cid.value}/rounds/${round.round_id}/lock`,
+    )
+    ElMessage.success(`已锁定本轮 ${data.locked} 场对局结果`)
+    await loadMatches()
+    await loadRankings()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '锁定失败')
+  } finally {
+    lockingRound.value = false
+  }
+}
+
+async function onResetLatestRound() {
+  try {
+    await ElMessageBox.confirm(
+      '将删除最新一轮的全部对局并重新生成（该轮已锁定的结果会被拒绝）。排行榜将按新赛程重新计算。',
+      '重置最新一轮',
+      { type: 'warning', confirmButtonText: '重置', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  resettingRound.value = true
+  try {
+    const { data } = await http.post<{ round_id: number; match_count: number }>(
+      `/competitions/${cid.value}/rounds/latest/reset`,
+    )
+    ElMessage.success(`已重置第 ${data.round_id} 轮，重新生成 ${data.match_count} 场对局`)
+    await loadMatches()
+    await loadRankings()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '重置失败')
+  } finally {
+    resettingRound.value = false
+  }
+}
+
 onMounted(async () => {
   await auth.fetchMe()
   await loadCompetition()
@@ -519,6 +601,23 @@ watch(() => route.params.cid, async (newCid) => {
 }
 .comp-detail__section {
   margin-bottom: 32px;
+}
+.comp-detail__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.comp-detail__section-head h2 {
+  font-size: 20px;
+  margin: 0;
+  border-left: 4px solid #409eff;
+  padding-left: 10px;
+}
+.comp-detail__round-actions {
+  display: flex;
+  gap: 8px;
 }
 .comp-detail__section h2 {
   font-size: 20px;

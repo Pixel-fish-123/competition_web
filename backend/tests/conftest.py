@@ -12,6 +12,7 @@ os.environ["DB_PATH"] = _tmp_db
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.ip_ban import reset_blacklist
 from app.core.lockout import reset_all as reset_lockout_all
 from app.core.ratelimit import limiter
 from app.db import Base, SessionLocal, engine
@@ -40,6 +41,7 @@ def _reset_traffic_state():
     """
     limiter.reset()
     reset_lockout_all()
+    reset_blacklist()
     yield
 
 

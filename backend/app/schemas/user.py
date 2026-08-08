@@ -11,10 +11,10 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class RegisterRequest(BaseModel):
-    username: str = Field(min_length=3, max_length=20)
+    username: str = Field(min_length=2, max_length=30)
     email: str
     password: str = Field(min_length=6, max_length=64)
-    nickname: str | None = Field(default=None, min_length=1, max_length=20)
+    nickname: str | None = Field(default=None, min_length=2, max_length=30)
 
     @field_validator("email")
     @classmethod
@@ -48,7 +48,7 @@ class UserMePatchRequest(BaseModel):
     ``None`` 表示不修改该字段；空串会被 min_length=1 拒绝（422）。
     """
 
-    nickname: str | None = Field(default=None, min_length=1, max_length=20)
+    nickname: str | None = Field(default=None, min_length=2, max_length=30)
 
 
 class UserOut(BaseModel):

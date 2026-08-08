@@ -60,7 +60,7 @@ def test_register_nickname_too_long_returns_422(client):
             "username": "nick_long",
             "email": "nicklong@example.com",
             "password": PASSWORD,
-            "nickname": "x" * 21,
+            "nickname": "x" * 31,
         },
     )
     assert resp.status_code == 422

@@ -125,6 +125,98 @@ def _require_assigned_referee(competition: Competition, referee: User) -> None:
         raise HTTPException(status_code=403, detail="非本场比赛裁判")
 
 
+def _round_real_matches(db: Session, competition: Competition, round_id: int) -> list[Match]:
+    """某轮的全部真实对局（排除轮空行）。"""
+    return (
+        db.query(Match)
+        .filter(
+            Match.competition_id == competition.id,
+            Match.round_id == round_id,
+            Match.participant_b.isnot(None),
+        )
+        .all()
+    )
+
+
+def lock_round(
+    db: Session,
+    competition: Competition,
+    round_id: int,
+    staff: User,
+) -> int:
+    """按轮次锁定：该轮全部真实对局结束后才能锁定整轮结果。
+
+    返回被锁定的对局数。已锁定的对局保持锁定（幂等）。
+    """
+    _require_assigned_referee(competition, staff)
+    real_matches = _round_real_matches(db, competition, round_id)
+    if not real_matches:
+        raise HTTPException(status_code=400, detail="该轮没有可锁定的对局")
+    unfinished = [m for m in real_matches if m.status != "finished"]
+    if unfinished:
+        raise HTTPException(status_code=400, detail="本轮尚未全部结束，无法锁定结果")
+
+    locked = 0
+    for match in real_matches:
+        if not match.result_locked:
+            match.result_locked = True
+            locked += 1
+    db.commit()
+    return locked
+
+
+def reset_latest_round(
+    db: Session,
+    competition: Competition,
+    staff: User,
+) -> tuple[int, list[Match]]:
+    """重置最新一轮的对局安排：删除该轮全部对局行，重建引擎后重新生成。
+
+    - 仅允许重置最新一轮（其后没有更多轮次，避免 engine_match_id 断裂）。
+    - 该轮存在已锁定结果时拒绝（锁定后不可重置）。
+    - 重建引擎确定性回放已完成对局（engine_match_id 保持不变），排行榜
+      经回放机制自动按新赛程更新积分/胜负。
+    """
+    _require_assigned_referee(competition, staff)
+
+    latest = (
+        db.query(Match)
+        .filter(Match.competition_id == competition.id)
+        .order_by(Match.round_id.desc())
+        .first()
+    )
+    if latest is None:
+        raise HTTPException(status_code=400, detail="暂无对局可重置")
+
+    round_id = latest.round_id
+    round_matches = (
+        db.query(Match)
+        .filter(
+            Match.competition_id == competition.id,
+            Match.round_id == round_id,
+        )
+        .all()
+    )
+    if any(m.result_locked for m in round_matches):
+        raise HTTPException(status_code=400, detail="本轮已有锁定结果，无法重置")
+
+    for match in round_matches:
+        db.delete(match)
+    db.commit()
+
+    # 重建引擎并回放剩余已完成对局（前一/几轮），再物化全部已生成轮次：
+    # 已存在轮次幂等跳过，最新一轮按引擎确定性重新生成。
+    engine = _rebuild_engine(db, competition)
+    _replay_finished(db, competition, engine)
+    created: list[Match] = []
+    for round_plan in engine.generate_schedule():
+        created.extend(_materialize_round(db, competition, round_plan))
+    db.commit()
+    for match in created:
+        db.refresh(match)
+    return round_id, created
+
+
 def _align_scores_to_engine(
     match: Match, engine: TournamentEngine, result: dict
 ) -> MatchResult:
@@ -375,6 +467,16 @@ def record_match_result(
 
     if match.result_locked:
         raise HTTPException(status_code=400, detail="结果已锁定，无法更改")
+
+    # 按轮次锁定（用户确认）：lock=true 仅当本轮全部真实对局结束后才接受。
+    if payload.lock:
+        unfinished = [
+            m
+            for m in _round_real_matches(db, competition, match.round_id)
+            if m.status != "finished"
+        ]
+        if unfinished:
+            raise HTTPException(status_code=400, detail="本轮尚未全部结束，无法锁定结果")
 
     # 允许 in_progress（首次记分）和 finished（人工修改结果）两种状态。
     # finished 重新记分时，重建引擎需跳过当前 match 的旧结果（否则引擎

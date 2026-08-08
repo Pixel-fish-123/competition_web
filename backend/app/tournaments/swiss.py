@@ -184,7 +184,10 @@ class SwissEngine(TournamentEngine):
         for r in self._schedule:
             for m in r.matches:
                 if m.is_bye:
-                    # Metis E2: bye = 1 win / 1 point, 0 net score.
+                    # Metis E2: bye = 1 win / 1 point, 0 net score. 比赛未开始
+                    # （尚无任何真实对局结果）时不计轮空分，排行榜保持全 0。
+                    if not self._results:
+                        continue
                     wins[m.participant_a] += 1.0
                     points[m.participant_a] += 1.0
                     continue

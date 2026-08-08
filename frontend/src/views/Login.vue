@@ -49,14 +49,14 @@
             <el-form-item label="用户名" prop="username">
               <el-input
                 v-model="registerForm.username"
-                placeholder="请输入用户名"
+                placeholder="2-30 个字符"
                 autocomplete="username"
               />
             </el-form-item>
             <el-form-item label="昵称（选填）" prop="nickname">
               <el-input
                 v-model="registerForm.nickname"
-                placeholder="参赛展示用昵称"
+                placeholder="参赛展示用昵称，2-30 个字符"
               />
             </el-form-item>
             <el-form-item label="邮箱" prop="email">
@@ -135,7 +135,22 @@ const loginRules: FormRules = {
 }
 
 const registerRules: FormRules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+  username: [
+    { required: true, message: '请输入用户名', trigger: 'blur' },
+    { min: 2, max: 30, message: '用户名需为 2-30 个字符', trigger: 'blur' },
+  ],
+  nickname: [
+    {
+      validator: (_rule, value: string, callback) => {
+        if (value && (value.length < 2 || value.length > 30)) {
+          callback(new Error('昵称需为 2-30 个字符'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur',
+    },
+  ],
   email: [
     { required: true, message: '请输入邮箱', trigger: 'blur' },
     { type: 'email', message: '邮箱格式不正确', trigger: 'blur' },

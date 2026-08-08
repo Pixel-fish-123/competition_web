@@ -40,7 +40,7 @@ class UserCreateRequest(BaseModel):
     the register / reset-password endpoints.
     """
 
-    username: str = Field(min_length=3, max_length=20)
+    username: str = Field(min_length=2, max_length=30)
     email: str
     password: str = Field(min_length=6, max_length=64)
     role: str

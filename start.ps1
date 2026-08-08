@@ -1,11 +1,19 @@
 ﻿# start.ps1 - 一键启动 萌新杯音游比赛网站（后端 + 前端）
 #
+# 可选参数:
+#   -Seed 额外执行幂等演示数据脚本；默认跳过，避免污染已有数据库。
+#
 # 用法:
 #   方式一: 双击根目录的 启动服务.bat
 #   方式二: powershell -ExecutionPolicy Bypass -File start.ps1
 #
-# 首次运行会自动: 创建 Python 虚拟环境 / 安装后端依赖 / 安装前端依赖 / 生成演示数据。
+# 首次运行会自动: 创建 Python 虚拟环境 / 安装后端依赖 / 安装前端依赖。
+# 需要演示数据时显式传入 -Seed。
 # 之后运行直接启动两个服务窗口（后端 :8000 + 前端 :5173），关闭窗口即停止。
+
+param(
+    [switch]$Seed
+)
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -61,11 +69,15 @@ if (-not (Test-Path (Join-Path $root 'frontend\node_modules'))) {
     Write-Host '      前端依赖已就绪' -ForegroundColor Green
 }
 
-# ---------- 4. 演示数据 (幂等, 可安全重复运行) ----------
-Write-Host '[4/4] 初始化演示数据...' -ForegroundColor Yellow
-Push-Location (Join-Path $root 'backend')
-& $venvPython seed.py
-Pop-Location
+# ---------- 4. 可选演示数据 (幂等, 可安全重复运行) ----------
+if ($Seed) {
+    Write-Host '[4/4] 初始化演示数据...' -ForegroundColor Yellow
+    Push-Location (Join-Path $root 'backend')
+    & $venvPython seed.py
+    Pop-Location
+} else {
+    Write-Host '[4/4] 跳过演示数据初始化（需要时使用 -Seed）' -ForegroundColor Green
+}
 
 # ---------- 5. 端口占用检测（issue 2：防止出现两个前端/后端进程） ----------
 function Test-PortInUse([int]$Port) {
@@ -73,12 +85,26 @@ function Test-PortInUse([int]$Port) {
     return ($null -ne $conn)
 }
 
+function Test-BackendHealthy([int]$Port) {
+    try {
+        $response = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/health" -TimeoutSec 2
+        return ($response.status -eq 'ok')
+    } catch {
+        return $false
+    }
+}
+
 $backendPort = 8000
 $frontendPort = 5173
 
 if (Test-PortInUse $backendPort) {
-    Write-Host "[warn] 端口 $backendPort 已被占用，跳过后端启动（可能已有实例在运行）" -ForegroundColor Yellow
-    $startBackend = $false
+    if (Test-BackendHealthy $backendPort) {
+        Write-Host "[warn] 端口 $backendPort 已被本项目后端占用，跳过后端启动" -ForegroundColor Yellow
+        $startBackend = $false
+    } else {
+        Write-Host "[error] 端口 $backendPort 被其他进程占用，且不是本项目后端。请先释放端口后重试。" -ForegroundColor Red
+        exit 1
+    }
 } else {
     $startBackend = $true
 }

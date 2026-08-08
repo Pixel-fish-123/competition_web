@@ -142,7 +142,7 @@
         <el-form-item label="昵称" required>
           <el-input
             v-model="newNickname"
-            placeholder="参赛展示用昵称"
+            placeholder="昵称 2-30 个字符"
             maxlength="30"
             @keyup.enter="saveNickname"
           />
@@ -355,8 +355,8 @@ function openNicknameDialog() {
 
 async function saveNickname() {
   const nickname = newNickname.value.trim()
-  if (!nickname) {
-    ElMessage.warning('昵称不能为空')
+  if (nickname.length < 2 || nickname.length > 30) {
+    ElMessage.warning('昵称需为 2-30 个字符')
     return
   }
   savingNickname.value = true

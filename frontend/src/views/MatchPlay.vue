@@ -106,6 +106,7 @@
           </div>
           <div class="match-play__log-winner">
             日志胜者: <el-tag :type="logWinnerTagType" size="small">{{ logWinnerText }}</el-tag>
+            <el-tag v-if="logWinType" type="info" size="small">{{ logWinTypeText }}</el-tag>
           </div>
         </div>
         <el-alert
@@ -138,7 +139,7 @@
             保存结果
           </el-button>
         </div>
-        <div class="match-play__lock-hint">保存后结果将锁定，无法再更改</div>
+        <div class="match-play__lock-hint">保存结果不会锁定；本轮全部结束后可在比赛详情页「锁定最新一轮」</div>
       </section>
     </div>
 
@@ -220,7 +221,7 @@
             保存结果
           </el-button>
         </div>
-        <div class="match-play__lock-hint">保存后结果将锁定，无法再更改</div>
+        <div class="match-play__lock-hint">保存结果不会锁定；本轮全部结束后可在比赛详情页「锁定最新一轮」</div>
       </section>
 
       <!-- 3b. 玩法日志展示（所有用户） -->
@@ -233,6 +234,7 @@
           </div>
           <div class="match-play__log-winner">
             日志判定: <el-tag :type="logWinnerTagType" size="small">{{ logWinnerText }}</el-tag>
+            <el-tag v-if="logWinType" type="info" size="small">{{ logWinTypeText }}</el-tag>
           </div>
           <div v-if="logImportedAt" class="match-play__log-time">
             导入时间: {{ formatTime(logImportedAt) }}
@@ -283,6 +285,7 @@ interface GameplayLog {
   events: GameplayEvent[]
   scores: { defender: number | null; attacker: number | null }
   winner: string | null
+  win_type: string | null
   imported_at: string | null
 }
 
@@ -391,7 +394,19 @@ const logScores = computed(() => {
   return { defender: s?.defender ?? null, attacker: s?.attacker ?? null }
 })
 const logWinner = computed(() => match.value?.gameplay_log?.winner ?? null)
+const logWinType = computed(() => match.value?.gameplay_log?.win_type ?? null)
 const logImportedAt = computed(() => match.value?.gameplay_log?.imported_at ?? null)
+
+const logWinTypeText = computed(() => {
+  switch (logWinType.value) {
+    case 'top':
+      return '顶端直胜'
+    case 'timeout':
+      return '计时结束'
+    default:
+      return ''
+  }
+})
 
 const logWinnerText = computed(() => {
   switch (logWinner.value) {
@@ -544,9 +559,8 @@ async function onSaveResult(): Promise<void> {
       is_draw: isDraw,
       score_a: resultForm.score_a,
       score_b: resultForm.score_b,
-      lock: true,
     })
-    ElMessage.success('结果已保存并锁定，无法再更改')
+    ElMessage.success('结果已保存（本轮全部结束后可在比赛详情页锁定）')
     judgeOpen.value = false
     await loadMatch()
   } catch (e: unknown) {

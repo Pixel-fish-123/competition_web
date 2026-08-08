@@ -406,8 +406,8 @@ def test_randomize_sides_on_bye_match_returns_400(admin_client):
     assert resp.json()["detail"] == "对局双方尚未确定，无法随机选边"
 
 
-def test_result_lock_prevents_rerecord(admin_client):
-    """issue 14：保存结果（lock=true）后结果锁定，任何再次 /result 均 400。"""
+def test_result_lock_requires_round_complete(admin_client):
+    """需求 4：lock=true 仅当本轮全部真实对局结束后才接受（中途锁定 400）。"""
     admin_token = admin_client.cookies.get("token")
     referee_id, referee_token = _make_referee(admin_client, admin_token)
     comp_id = _create_ok(admin_client, referee_ids=[referee_id])
@@ -415,38 +415,155 @@ def test_result_lock_prevents_rerecord(admin_client):
     _seed_players_and_approve(admin_client, admin_token, comp_id, 4)
     assert _transition(admin_client, comp_id, "ongoing").status_code == 200
 
-    match = _get_matches(admin_client, comp_id)[0]
+    round1 = [m for m in _get_matches(admin_client, comp_id) if m["round_id"] == 1]
+    assert len(round1) == 2  # 4 人瑞士轮第 1 轮 = 2 场真实对局
+
     _as_user(admin_client, referee_token)
-    assert (
-        admin_client.post(f"/api/matches/{match['id']}/start", json={}).status_code
-        == 200
-    )
-    # 首次记分 + 锁定。
+    # 只打完一场就提交 lock：本轮未结束 -> 400。
+    first = round1[0]
+    assert admin_client.post(f"/api/matches/{first['id']}/start", json={}).status_code == 200
     resp = admin_client.post(
-        f"/api/matches/{match['id']}/result",
-        json={
-            "winner": match["participant_a"],
-            "is_draw": False,
-            "score_a": 10,
-            "score_b": 5,
-            "lock": True,
-        },
+        f"/api/matches/{first['id']}/result",
+        json={"winner": first["participant_a"], "is_draw": False, "score_a": 10, "score_b": 5, "lock": True},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "本轮尚未全部结束，无法锁定结果"
+
+    # 全部打完（不锁定），本轮结束后再提交 lock：允许并锁定。
+    second = round1[1]
+    assert admin_client.post(f"/api/matches/{second['id']}/start", json={}).status_code == 200
+    for m, w in ((first, first["participant_a"]), (second, second["participant_a"])):
+        resp = admin_client.post(
+            f"/api/matches/{m['id']}/result",
+            json={"winner": w, "is_draw": False, "score_a": 1, "score_b": 0},
+        )
+        assert resp.status_code == 200, resp.text
+    resp = admin_client.post(
+        f"/api/matches/{first['id']}/result",
+        json={"winner": first["participant_a"], "is_draw": False, "score_a": 1, "score_b": 0, "lock": True},
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["result_locked"] is True
 
     # 锁定后任何修改都被拒绝。
     resp2 = admin_client.post(
-        f"/api/matches/{match['id']}/result",
-        json={"winner": match["participant_b"], "is_draw": False, "score_a": 3, "score_b": 7},
+        f"/api/matches/{first['id']}/result",
+        json={"winner": first["participant_b"], "is_draw": False, "score_a": 3, "score_b": 7},
     )
     assert resp2.status_code == 400
     assert resp2.json()["detail"] == "结果已锁定，无法更改"
 
-    # 结果保持首次提交的值。
-    detail = admin_client.get(f"/api/matches/{match['id']}").json()
-    assert detail["match"]["result_locked"] is True
-    assert detail["match"]["result"]["winner"] == match["participant_a"]
+
+def test_round_lock_endpoint(admin_client):
+    """需求 4：POST /rounds/{round_id}/lock 一键锁定整轮。"""
+    admin_token = admin_client.cookies.get("token")
+    referee_id, referee_token = _make_referee(admin_client, admin_token)
+    comp_id = _create_ok(admin_client, referee_ids=[referee_id])
+    assert _transition(admin_client, comp_id, "registration").status_code == 200
+    _seed_players_and_approve(admin_client, admin_token, comp_id, 4)
+    assert _transition(admin_client, comp_id, "ongoing").status_code == 200
+
+    round1 = [m for m in _get_matches(admin_client, comp_id) if m["round_id"] == 1]
+    _as_user(admin_client, referee_token)
+    # 未打完 -> 400。
+    resp = admin_client.post(f"/api/competitions/{comp_id}/rounds/1/lock", json={})
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "本轮尚未全部结束，无法锁定结果"
+
+    for m in round1:
+        assert admin_client.post(f"/api/matches/{m['id']}/start", json={}).status_code == 200
+        resp = admin_client.post(
+            f"/api/matches/{m['id']}/result",
+            json={"winner": m["participant_a"], "is_draw": False, "score_a": 1, "score_b": 0},
+        )
+        assert resp.status_code == 200, resp.text
+    # 打完 -> 整轮锁定。
+    resp = admin_client.post(f"/api/competitions/{comp_id}/rounds/1/lock", json={})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["locked"] == 2
+    for m in round1:
+        detail = admin_client.get(f"/api/matches/{m['id']}").json()
+        assert detail["match"]["result_locked"] is True
+
+
+def test_reset_latest_round(admin_client):
+    """需求 4：POST /rounds/latest/reset 重置最新一轮；排行榜按新赛程重算。"""
+    admin_token = admin_client.cookies.get("token")
+    referee_id, referee_token = _make_referee(admin_client, admin_token)
+    comp_id = _create_ok(admin_client, referee_ids=[referee_id])
+    assert _transition(admin_client, comp_id, "registration").status_code == 200
+    _seed_players_and_approve(admin_client, admin_token, comp_id, 6)
+    assert _transition(admin_client, comp_id, "ongoing").status_code == 200
+
+    round1 = [m for m in _get_matches(admin_client, comp_id) if m["round_id"] == 1]
+    assert len(round1) == 3
+
+    _as_user(admin_client, referee_token)
+    # 打完一场（第一场真实结果落地，排行榜不再是全 0）。
+    m = round1[0]
+    assert admin_client.post(f"/api/matches/{m['id']}/start", json={}).status_code == 200
+    assert (
+        admin_client.post(
+            f"/api/matches/{m['id']}/result",
+            json={"winner": m["participant_a"], "is_draw": False, "score_a": 2, "score_b": 1},
+        ).status_code
+        == 200
+    )
+
+    # 重置最新一轮：删除第 1 轮全部对局并重新生成。
+    resp = admin_client.post(f"/api/competitions/{comp_id}/rounds/latest/reset", json={})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["round_id"] == 1
+    assert resp.json()["match_count"] == 3
+
+    matches = _get_matches(admin_client, comp_id)
+    assert len(matches) == 3
+    assert all(x["status"] == "pending" for x in matches if x["participant_b"] is not None)
+
+    # 排行榜回到全 0（无任何真实结果）。
+    rankings = admin_client.get(f"/api/rankings/competition/{comp_id}").json()
+    assert all(row["wins"] == 0 and row["points"] == 0 for row in rankings)
+
+
+def test_reset_round_refused_when_locked(admin_client):
+    """需求 4：最新一轮存在已锁定结果时重置返回 400。
+
+    瑞士轮打完一轮会自动物化下一轮（最新轮变成 pending 新轮），因此用
+    单败淘汰（完整赛程排表时已物化，末轮即决赛）构造「已锁定仍是最新轮」。
+    """
+    admin_token = admin_client.cookies.get("token")
+    referee_id, referee_token = _make_referee(admin_client, admin_token)
+    comp_id = _create_ok(
+        admin_client,
+        tournament_format="single_elim",
+        format_config={},
+        max_participants=2,
+        referee_ids=[referee_id],
+    )
+    assert _transition(admin_client, comp_id, "registration").status_code == 200
+    _seed_players_and_approve(admin_client, admin_token, comp_id, 2)
+    assert _transition(admin_client, comp_id, "ongoing").status_code == 200
+
+    matches = _get_matches(admin_client, comp_id)
+    assert len(matches) == 1  # 2 人单败 = 1 场决赛（round 1）
+    final = matches[0]
+    _as_user(admin_client, referee_token)
+    assert admin_client.post(f"/api/matches/{final['id']}/start", json={}).status_code == 200
+    assert (
+        admin_client.post(
+            f"/api/matches/{final['id']}/result",
+            json={"winner": final["participant_a"], "is_draw": False, "score_a": 1, "score_b": 0},
+        ).status_code
+        == 200
+    )
+    assert (
+        admin_client.post(f"/api/competitions/{comp_id}/rounds/1/lock", json={}).status_code
+        == 200
+    )
+
+    resp = admin_client.post(f"/api/competitions/{comp_id}/rounds/latest/reset", json={})
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "本轮已有锁定结果，无法重置"
 
 
 def test_list_matches_unauthenticated_returns_401(client):

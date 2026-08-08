@@ -340,3 +340,140 @@ def test_import_no_file_422(admin_client):
 
     resp = admin_client.post(f"/api/matches/{match_id}/gameplay-log")
     assert resp.status_code == 422  # file 是必填 multipart 字段
+
+
+# ------------------------------------------------------ GameState 权威模式（plan.md）
+
+
+def _state_payload(score_a, score_b, winner, win_type, game_over=True, events=None):
+    """按 demo /api/state 导出结构构造权威状态（attacker=掠夺者=score_a）。"""
+    return {
+        "board": [],
+        "scores": {"defender": score_b, "attacker": score_a},
+        "encircled": [],
+        "encirclement_active": False,
+        "l1": {"holder": None, "high_score": None, "high_tp": None},
+        "elapsed": 25.0,
+        "time_limit": 25.0,
+        "events": events or [{"time": "24:55", "text": "游戏结束", "type": "system"}],
+        "game_over": game_over,
+        "winner": winner,
+        "win_type": win_type,
+        "started": True,
+    }
+
+
+def test_import_state_timeout_saves_and_finishes(admin_client):
+    """GameState（计时结束）：直接保存结果并结束对局（不锁定、不触碰引擎）。"""
+    match_id, referee_token = _seed(admin_client)
+    _start(admin_client, match_id, referee_token)
+
+    resp = _upload(
+        admin_client,
+        match_id,
+        content=json.dumps(
+            _state_payload(72.0, 85.0, "defender", "timeout")
+        ).encode("utf-8"),
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "finished"
+    log = body["gameplay_log"]
+    assert log["winner"] == "defender"
+    assert log["win_type"] == "timeout"
+    assert log["scores"] == {"defender": 85.0, "attacker": 72.0}
+
+    with SessionLocal() as db:
+        match = db.get(Match, match_id)
+        assert match.status == "finished"
+        # attacker=掠夺者=participant_a -> score_a=72；defender=守护者=participant_b -> score_b=85。
+        assert match.result["score_a"] == 72.0
+        assert match.result["score_b"] == 85.0
+        assert match.result["winner"] == match.participant_b
+        assert match.result["is_draw"] is False
+        assert match.result_type == "win"
+        assert match.result_locked is False  # 导入只保存结果，不锁定
+
+
+def test_import_state_top_victory_keeps_defender_score(admin_client):
+    """顶端直胜（plan.md）：掠夺者获胜，防守方分数保留原值。"""
+    match_id, referee_token = _seed(admin_client)
+    _start(admin_client, match_id, referee_token)
+
+    resp = _upload(
+        admin_client,
+        match_id,
+        content=json.dumps(
+            _state_payload(30.0, 50.0, "attacker", "top")
+        ).encode("utf-8"),
+    )
+    assert resp.status_code == 200, resp.text
+
+    with SessionLocal() as db:
+        match = db.get(Match, match_id)
+        assert match.status == "finished"
+        assert match.result["winner"] == match.participant_a
+        assert match.result["score_a"] == 30.0
+        assert match.result["score_b"] == 50.0  # 防守方分数保留
+        assert match.result["is_draw"] is False
+
+
+def test_import_state_draw(admin_client):
+    """计时结束同分 -> 平局（winner=None, is_draw=True）。"""
+    match_id, referee_token = _seed(admin_client)
+    _start(admin_client, match_id, referee_token)
+
+    resp = _upload(
+        admin_client,
+        match_id,
+        content=json.dumps(
+            _state_payload(50.0, 50.0, "draw", "timeout")
+        ).encode("utf-8"),
+    )
+    assert resp.status_code == 200, resp.text
+
+    with SessionLocal() as db:
+        match = db.get(Match, match_id)
+        assert match.result["winner"] is None
+        assert match.result["is_draw"] is True
+        assert match.result_type == "draw"
+        assert match.status == "finished"
+
+
+def test_import_state_mid_game_rejected(admin_client):
+    """比赛状态未结束（无 game_over/win_type，无显式覆盖）-> 400。"""
+    match_id, referee_token = _seed(admin_client)
+    _start(admin_client, match_id, referee_token)
+
+    resp = _upload(
+        admin_client,
+        match_id,
+        content=json.dumps(
+            _state_payload(10.0, 20.0, None, None, game_over=False)
+        ).encode("utf-8"),
+    )
+    assert resp.status_code == 400
+    assert "未结束" in resp.json()["detail"]
+
+
+def test_import_state_form_fields_override(admin_client):
+    """显式表单字段优先级最高：覆盖 GameState 的胜者与比分。"""
+    match_id, referee_token = _seed(admin_client)
+    _start(admin_client, match_id, referee_token)
+
+    resp = _upload(
+        admin_client,
+        match_id,
+        content=json.dumps(
+            _state_payload(72.0, 85.0, "defender", "timeout")
+        ).encode("utf-8"),
+        data={"score_a": "90", "score_b": "80", "winner": "attacker"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    with SessionLocal() as db:
+        match = db.get(Match, match_id)
+        assert match.result["winner"] == match.participant_a
+        assert match.result["score_a"] == 90.0
+        assert match.result["score_b"] == 80.0
+        assert match.status == "finished"

@@ -4,9 +4,9 @@
     <div class="toolbar">
       <el-input
         v-model="search"
-        placeholder="按用户名搜索"
+        placeholder="按用户名或昵称搜索"
         clearable
-        style="width: 200px"
+        style="width: 220px"
         @input="loadUsers"
       />
       <el-select
@@ -26,6 +26,12 @@
 
     <el-table :data="filteredUsers" v-loading="loading" border stripe>
       <el-table-column prop="username" label="用户名" min-width="120" />
+      <el-table-column label="昵称" min-width="120">
+        <template #default="{ row }">
+          <span v-if="row.nickname">{{ row.nickname }}</span>
+          <span v-else class="nickname-empty">—</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="email" label="邮箱" min-width="180" />
       <el-table-column label="角色" width="150">
         <template #default="{ row }">
@@ -67,7 +73,7 @@
     <el-dialog v-model="createVisible" title="创建用户" width="460px">
       <el-form label-width="80px">
         <el-form-item label="用户名">
-          <el-input v-model="createForm.username" placeholder="3-20 个字符" />
+          <el-input v-model="createForm.username" placeholder="2-30 个字符" />
         </el-form-item>
         <el-form-item label="邮箱">
           <el-input v-model="createForm.email" placeholder="name@example.com" />
@@ -115,6 +121,7 @@ import http from '../../api/http'
 interface UserRow {
   id: number
   username: string
+  nickname: string | null
   email: string
   role: string
   status: string
@@ -152,7 +159,10 @@ function roleTagType(role: string): 'danger' | 'warning' | 'info' {
 const filteredUsers = computed(() => {
   const q = search.value.trim().toLowerCase()
   return users.value.filter((u) => {
-    if (q && !u.username.toLowerCase().includes(q)) return false
+    if (q) {
+      const nickname = (u.nickname || '').toLowerCase()
+      if (!u.username.toLowerCase().includes(q) && !nickname.includes(q)) return false
+    }
     if (roleFilter.value && u.role !== roleFilter.value) return false
     return true
   })
@@ -219,8 +229,8 @@ function openCreate() {
 
 async function doCreate() {
   const f = createForm.value
-  if (f.username.trim().length < 3) {
-    ElMessage.warning('用户名至少 3 个字符')
+  if (f.username.trim().length < 2 || f.username.trim().length > 30) {
+    ElMessage.warning('用户名需为 2-30 个字符')
     return
   }
   if (!/.+@.+\..+/.test(f.email.trim())) {
@@ -290,6 +300,9 @@ onMounted(loadUsers)
 }
 .role-tag {
   margin-left: 8px;
+}
+.nickname-empty {
+  color: #c0c4cc;
 }
 .dialog-tip {
   color: #909399;

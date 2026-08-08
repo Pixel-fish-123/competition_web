@@ -39,7 +39,7 @@
 
 ## 快速开始
 
-> **一键启动**：双击根目录 `启动服务.bat`（或运行 `start.ps1`），自动完成环境准备并同时启动前后端，浏览器自动打开 http://localhost:5173。关闭服务窗口即停止。
+> **一键启动**：双击根目录 `启动服务.bat`（或运行 `start.ps1`），自动完成环境准备并同时启动前后端，浏览器自动打开 http://localhost:5173。默认不会写入演示数据；全新演示库可运行 `powershell -ExecutionPolicy Bypass -File start.ps1 -Seed`。关闭服务窗口即停止。
 
 ### 1. 启动后端
 

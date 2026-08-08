@@ -7,18 +7,21 @@ core/lockout.py, audit logging via core/audit.py, and slowapi rate limits
 """
 
 import time
+from datetime import datetime, timedelta, timezone
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.core.audit import log_audit
+from app.core.ip_ban import ban_ip
 from app.core.lockout import locked_until, record_failed_login, reset_lockout
 from app.core.ratelimit import limiter
 from app.core.rbac import get_current_user
 from app.core.security import create_access_token, decode_access_token, hash_password, verify_password
-from app.config import settings
 from app.db import get_db
+from app.models.audit_log import AuditLog
 from app.models.user import User
 from app.schemas.user import LoginRequest, RegisterRequest, UserMePatchRequest, UserOut
 
@@ -26,6 +29,11 @@ router = APIRouter()
 
 COOKIE_NAME = "token"
 COOKIE_MAX_AGE = 7 * 24 * 3600  # 7 days, seconds
+
+# 恶意登录自动拉黑：24h 内失败登录达到阈值即把该 IP 加入黑名单（全站封禁）。
+IP_AUTO_BAN_THRESHOLD = 20
+IP_AUTO_BAN_WINDOW_HOURS = 24
+LOOPBACK_IPS = ("127.0.0.1", "::1", "localhost")
 
 
 def _set_auth_cookie(response: Response, user_id: int, role: str) -> None:
@@ -44,6 +52,27 @@ def _request_meta(request: Request) -> tuple[str, str | None]:
     """(ip, user_agent) 供审计日志使用。"""
     ip = request.client.host if request.client else "unknown"
     return ip, request.headers.get("user-agent")
+
+
+def _auto_ban_ip(db: Session, ip: str) -> None:
+    """24h 内失败登录 ≥20 次的 IP 自动拉黑（本地回环豁免）。
+
+    统计基于审计表（持久化，重启不丢失）；core/ip_ban.ban_ip 幂等。
+    """
+    if not ip or ip in LOOPBACK_IPS:
+        return
+    recent = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.action == "login_failed",
+            AuditLog.ip == ip,
+            AuditLog.created_at
+            >= datetime.now(timezone.utc) - timedelta(hours=IP_AUTO_BAN_WINDOW_HOURS),
+        )
+        .count()
+    )
+    if recent >= IP_AUTO_BAN_THRESHOLD:
+        ban_ip(db, ip, "自动拉黑：24小时内失败登录次数过多", None)
 
 
 @router.post("/api/auth/register", response_model=UserOut)
@@ -86,6 +115,7 @@ def login(request: Request, payload: LoginRequest, response: Response, db: Sessi
     if user is None or not verify_password(payload.password, user.password_hash):
         record_failed_login(payload.username, ip)
         log_audit(db, None, "login_failed", ip, user_agent, {"username": payload.username})
+        _auto_ban_ip(db, ip)
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
     reset_lockout(payload.username)

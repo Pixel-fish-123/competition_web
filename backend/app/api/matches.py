@@ -394,6 +394,63 @@ def record_result(
     return _match_out(db, result)
 
 
+@router.post("/api/competitions/{competition_id}/rounds/{round_id}/lock")
+def lock_round(
+    competition_id: int,
+    round_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    staff: User = Depends(require_referee),
+):
+    """按轮次锁定结果（admin 或本场裁判）：本轮全部真实对局结束后才能锁定。
+
+    锁定后该轮任何对局不可再改（reset 也会拒绝）。
+    """
+    competition = _get_competition_or_404(db, competition_id)
+    locked = match_service.lock_round(db, competition, round_id, staff)
+    ip, user_agent = _request_meta(request)
+    log_audit(
+        db,
+        staff.id,
+        "round_lock",
+        ip,
+        user_agent,
+        {"competition_id": competition_id, "round_id": round_id, "locked": locked},
+    )
+    return {"ok": True, "competition_id": competition_id, "round_id": round_id, "locked": locked}
+
+
+@router.post("/api/competitions/{competition_id}/rounds/latest/reset")
+def reset_latest_round(
+    competition_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    staff: User = Depends(require_referee),
+):
+    """重置最新一轮的对局安排（admin 或本场裁判）。
+
+    删除最新一轮全部对局行后按引擎确定性重新生成（engine_match_id 不变）；
+    排行榜经回放机制自动按新赛程更新积分/胜负。该轮存在锁定结果时拒绝。
+    """
+    competition = _get_competition_or_404(db, competition_id)
+    round_id, created = match_service.reset_latest_round(db, competition, staff)
+    ip, user_agent = _request_meta(request)
+    log_audit(
+        db,
+        staff.id,
+        "round_reset",
+        ip,
+        user_agent,
+        {"competition_id": competition_id, "round_id": round_id, "match_count": len(created)},
+    )
+    return {
+        "ok": True,
+        "competition_id": competition_id,
+        "round_id": round_id,
+        "match_count": len(created),
+    }
+
+
 @router.post("/api/matches/{match_id}/gameplay-log")
 def import_gameplay_log(
     match_id: int,
@@ -406,22 +463,66 @@ def import_gameplay_log(
     db: Session = Depends(get_db),
     staff: User = Depends(require_referee),
 ):
-    """导入 demo 控制器导出的玩法日志（JSON/CSV，multipart 上传）。
+    """导入 demo 控制器玩法日志（JSON，multipart 上传），自动识别两种载荷：
 
-    - 解析事件数组存入 ``match.gameplay_log``；比分/胜者可经表单字段
-      ``score_a`` / ``score_b`` / ``winner`` 显式提供，缺省时从最后一条
-      victory 事件文本解析（如 "积分 85:72" / "守护者获胜"），解析不到则
-      留空。
-    - ``?sync=true`` 时把解析出的比分/胜者预填进 ``match.result``
-      （不结束对局、不触碰赛制引擎，供前端展示后人工微调再走 /result）。
-    - 重新导入覆盖旧日志（幂等）。
+    1. **GameState 权威模式**（按 demo plan.md）：上传 ``/api/state`` 导出的
+       完整状态 JSON（含 ``scores{defender,attacker}`` / ``winner`` /
+       ``win_type("top"|"timeout")`` / ``game_over`` / ``events``）。
+       - 按 plan.md 语义推导结果：顶端直胜(win_type="top") → 掠夺者获胜且
+         比分用状态原值（防守方分数保留）；计时结束(win_type="timeout") →
+         按状态 winner（分数高者胜，同分平局）。
+       - **直接保存当前结果**：写入 match.result、result_type 并置
+         status="finished"（不锁定、不触碰赛制引擎，排行榜回放自动更新）。
+       - 表单字段 score_a / score_b / winner 可显式覆盖（裁判微调，优先级最高）。
+       - 状态未结束（无 game_over/win_type）且无显式覆盖时拒绝导入。
+
+    2. **事件日志模式**（旧格式兼容）：JSON 事件数组或 ``{"events": [...]}``，
+       走文本解析路径；``?sync=true`` 时仅预填 match.result 供人工微调。
+
+    重新导入覆盖旧日志（幂等）。
     """
     match = _get_match_or_404(db, match_id)
     competition = _get_competition_or_404(db, match.competition_id)
     match_service._require_assigned_referee(competition, staff)
 
+    content = file.file.read()
+    state = _parse_state_payload(content)
+
+    if state is not None:
+        try:
+            result = _apply_state_result(match, state, score_a, score_b, winner)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        log_data = {
+            "events": _parse_events_from_state(state),
+            "scores": {"defender": result["score_b"], "attacker": result["score_a"]},
+            "winner": result["winner_label"],
+            "win_type": state.get("win_type"),
+            "imported_at": datetime.now(timezone.utc).isoformat(),
+        }
+        match.gameplay_log = log_data
+        db.commit()
+        db.refresh(match)
+
+        ip, user_agent = _request_meta(request)
+        log_audit(
+            db,
+            staff.id,
+            "match_gameplay_log_import",
+            ip,
+            user_agent,
+            {"match_id": match_id, "mode": "state", "sync": sync},
+        )
+        return {
+            "match_id": match_id,
+            "gameplay_log": match.gameplay_log,
+            "result": match.result,
+            "status": match.status,
+        }
+
+    # 事件日志模式（旧格式兼容）。
     try:
-        events = _parse_gameplay_log(file.file.read())
+        events = _parse_gameplay_log(content)
         scores, win = _extract_scores_and_winner(events, score_a, score_b, winner)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -430,6 +531,7 @@ def import_gameplay_log(
         "events": events,
         "scores": {"defender": scores["defender"], "attacker": scores["attacker"]},
         "winner": win,
+        "win_type": None,
         "imported_at": datetime.now(timezone.utc).isoformat(),
     }
     match.gameplay_log = log_data
@@ -445,9 +547,125 @@ def import_gameplay_log(
         "match_gameplay_log_import",
         ip,
         user_agent,
-        {"match_id": match_id, "sync": sync},
+        {"match_id": match_id, "mode": "events", "sync": sync},
     )
     return {"match_id": match_id, "gameplay_log": match.gameplay_log}
+
+
+def _parse_state_payload(content: bytes) -> dict | None:
+    """把上传内容解析为 demo GameState JSON；不是状态结构时返回 None。"""
+    text = content.decode("utf-8-sig", errors="replace").lstrip("\ufeff \t\r\n")
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("scores"), dict):
+        return None
+    return data
+
+
+def _parse_events_from_state(state: dict) -> list[dict]:
+    """从 GameState 提取事件列表（[{time, type, text}]，容错缺失字段）。"""
+    events = state.get("events")
+    if not isinstance(events, list):
+        return []
+    return [
+        {
+            "time": str(e.get("time") or ""),
+            "type": str(e.get("type") or "system"),
+            "text": str(e.get("text") or ""),
+        }
+        for e in events
+        if isinstance(e, dict)
+    ]
+
+
+def _to_float(value) -> float | None:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _apply_state_result(
+    match: Match,
+    state: dict,
+    score_a: float | None,
+    score_b: float | None,
+    winner: str | None,
+) -> dict:
+    """按 plan.md 语义从 GameState 推导并保存当前结果（不锁定、不触碰引擎）。
+
+    阵营约定：defender=守护者=participant_b（score_b），attacker=掠夺者
+    =participant_a（score_a）。返回 {"score_a", "score_b", "winner",
+    "winner_label"} 供调用方写 gameplay_log。
+    """
+    scores = state.get("scores") or {}
+    defender = _to_float(scores.get("defender"))
+    attacker = _to_float(scores.get("attacker"))
+    win_type = state.get("win_type")
+    state_winner = state.get("winner")
+    game_over = bool(state.get("game_over"))
+
+    if (
+        not game_over
+        and win_type not in ("top", "timeout")
+        and winner is None
+        and score_a is None
+        and score_b is None
+    ):
+        raise ValueError("比赛状态未结束，无法导入最终结果")
+
+    s_a = score_a if score_a is not None else attacker
+    s_b = score_b if score_b is not None else defender
+
+    winner_id: int | None = None
+    is_draw = False
+
+    if winner is not None:
+        if winner == "defender":
+            winner_id = match.participant_b
+        elif winner == "attacker":
+            winner_id = match.participant_a
+        elif winner == "draw":
+            is_draw = True
+        else:
+            raise ValueError("winner 字段仅接受 defender / attacker / draw")
+    elif state_winner in ("defender", "attacker", "draw"):
+        if state_winner == "defender":
+            winner_id = match.participant_b
+        elif state_winner == "attacker":
+            winner_id = match.participant_a
+        else:
+            is_draw = True
+    elif win_type == "top":
+        # 顶端直胜：进攻方（掠夺者）立即获胜，防守方分数保留。
+        winner_id = match.participant_a
+    elif win_type == "timeout":
+        # 计时结束：分数高者胜，同分平局。
+        if s_a is None or s_b is None:
+            raise ValueError("计时结束状态缺少比分，无法判定胜负")
+        if s_a > s_b:
+            winner_id = match.participant_a
+        elif s_b > s_a:
+            winner_id = match.participant_b
+        else:
+            is_draw = True
+
+    match.result = {
+        "winner": winner_id,
+        "is_draw": is_draw,
+        "score_a": s_a if s_a is not None else 0.0,
+        "score_b": s_b if s_b is not None else 0.0,
+    }
+    match.result_type = "draw" if is_draw else "win"
+    match.status = "finished"
+    return {
+        "score_a": match.result["score_a"],
+        "score_b": match.result["score_b"],
+        "winner": winner_id,
+        "winner_label": "draw" if is_draw else ("defender" if winner_id == match.participant_b else "attacker"),
+    }
 
 
 @router.get("/api/matches/{match_id}/gameplay-log")

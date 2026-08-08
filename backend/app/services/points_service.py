@@ -69,6 +69,7 @@ def get_leaderboard(
     query = db.query(
         User.id.label("user_id"),
         User.username.label("username"),
+        User.nickname.label("nickname"),
         func.coalesce(func.sum(PointTransaction.amount), 0.0).label("total"),
         func.coalesce(
             func.sum(
@@ -91,7 +92,7 @@ def get_leaderboard(
     ).join(PointTransaction, PointTransaction.user_id == User.id)
     if kind:
         query = query.filter(PointTransaction.kind == kind)
-    query = query.group_by(User.id, User.username).order_by(
+    query = query.group_by(User.id, User.username, User.nickname).order_by(
         func.coalesce(func.sum(PointTransaction.amount), 0.0).desc(),
         func.coalesce(
             func.sum(
@@ -108,6 +109,7 @@ def get_leaderboard(
         {
             "user_id": row.user_id,
             "username": row.username,
+            "nickname": row.nickname,
             "total": float(row.total),
             "competition_sum": float(row.competition_sum),
             "activity_sum": float(row.activity_sum),

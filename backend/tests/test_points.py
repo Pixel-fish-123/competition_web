@@ -225,7 +225,7 @@ def test_leaderboard_ordered_by_total_desc(admin_client):
     assert totals == sorted(totals, reverse=True)
     assert totals == [100.0, 60.0, 40.0, 10.0, 10.0, 10.0]
     for row in rows:
-        assert set(row) == {"user_id", "username", "total", "competition_sum", "activity_sum"}
+        assert set(row) == {"user_id", "username", "nickname", "total", "competition_sum", "activity_sum"}
         assert row["competition_sum"] == 0.0
         assert row["activity_sum"] == 0.0
 

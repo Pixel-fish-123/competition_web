@@ -15,7 +15,12 @@
           </span>
         </template>
       </el-table-column>
-      <el-table-column prop="username" label="用户名" min-width="160" />
+      <el-table-column label="选手" min-width="160">
+        <template #default="{ row }">
+          <span class="rankings__player">{{ row.nickname || row.username }}</span>
+          <span v-if="row.nickname" class="rankings__username">{{ row.username }}</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="total" label="总分" width="110" />
     </el-table>
 
@@ -35,6 +40,7 @@ import http from '../api/http'
 interface LeaderboardRow {
   user_id: number
   username: string
+  nickname: string | null
   total: number
 }
 
@@ -106,5 +112,14 @@ onMounted(loadLeaderboard)
 .rankings__rank--bronze {
   color: #a0522d;
   background: #fdf0e6;
+}
+.rankings__player {
+  font-weight: 600;
+  color: #303133;
+}
+.rankings__username {
+  margin-left: 8px;
+  color: #909399;
+  font-size: 12px;
 }
 </style>

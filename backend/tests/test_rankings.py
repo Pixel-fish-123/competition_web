@@ -181,7 +181,7 @@ def test_global_rankings_delegate_to_leaderboard(admin_client):
     rows = resp.json()
     assert len(rows) == 6
     assert [row["total"] for row in rows] == [10.0] * 6
-    assert set(rows[0]) == {"user_id", "username", "total", "competition_sum", "activity_sum"}
+    assert set(rows[0]) == {"user_id", "username", "nickname", "total", "competition_sum", "activity_sum"}
 
 
 def test_rankings_global_matches_points_leaderboard(admin_client):

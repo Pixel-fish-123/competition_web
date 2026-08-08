@@ -31,11 +31,12 @@ class LeaderboardRow(BaseModel):
 
     competition_sum / activity_sum 是 total 的两个维度分量（manual 计入
     total 但不单列），保留仅为向后兼容 —— 前端已合并为单一 total 列，
-    不再使用分列。
+    不再使用分列。nickname 供排行榜展示（前端昵称优先、缺省回退用户名）。
     """
 
     user_id: int
     username: str
+    nickname: str | None = None
     total: float
     competition_sum: float | None = None
     activity_sum: float | None = None

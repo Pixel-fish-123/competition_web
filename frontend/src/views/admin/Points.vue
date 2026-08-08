@@ -50,7 +50,12 @@
       </template>
       <el-table :data="leaderboard" v-loading="lbLoading" border stripe>
         <el-table-column type="index" label="#" width="60" />
-        <el-table-column prop="username" label="用户名" min-width="140" />
+        <el-table-column label="选手" min-width="140">
+          <template #default="{ row }">
+            <span>{{ row.nickname || row.username }}</span>
+            <span v-if="row.nickname" class="lb-username">{{ row.username }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="total" label="总分" width="100" />
       </el-table>
     </el-card>
@@ -69,6 +74,7 @@ interface UserRow {
 interface LeaderboardRow {
   user_id: number
   username: string
+  nickname: string | null
   total: number
 }
 
@@ -150,6 +156,11 @@ onMounted(() => {
   margin-bottom: 16px;
 }
 .amount-hint {
+  margin-left: 8px;
+  color: #909399;
+  font-size: 12px;
+}
+.lb-username {
   margin-left: 8px;
   color: #909399;
   font-size: 12px;

@@ -230,24 +230,41 @@ def test_five_players_one_bye_per_round_no_double_bye():
         assert by_id[pid].wins >= 1.0
 
 
-def test_bye_counts_only_after_first_real_result():
-    """需求 3：比赛未开始时轮空不得加分 —— 轮空计分以「至少一场真实对局
-    产生结果」为门槛；第一场真实结果落地后轮空立即计 1 胜 / 1 分。"""
+def test_bye_counts_only_after_its_round_starts():
+    """需求 3（用户确认）：轮空计分按轮次门槛 —— 轮空所在轮次已有真实对局
+    结果（该轮已开始）才计分；下一轮虽已物化但尚未开打时，其轮空不提前加分。"""
     engine = SwissEngine([1, 2, 3, 4, 5], {})
     r1 = engine.generate_schedule()[0]
-    bye = next(m for m in r1.matches if m.is_bye)
-    real = next(m for m in r1.matches if not m.is_bye)
+    r1_bye = next(m for m in r1.matches if m.is_bye)
+    r1_real = [m for m in r1.matches if not m.is_bye]
 
-    # 未开始：全 0。
+    # 比赛未开始：全部 0。
     by_id = {row.participant_id: row for row in engine.standings()}
-    assert by_id[bye.participant_a].wins == 0.0
-    assert by_id[bye.participant_a].points == 0.0
+    assert by_id[r1_bye.participant_a].wins == 0.0
+    assert by_id[r1_bye.participant_a].points == 0.0
 
-    # 记入第一场真实结果后：轮空计 1 胜 / 1 分。
-    engine.record_result(real.match_id, MatchResult(winner=real.participant_a))
+    # 第 1 轮第一场真实结果落地：第 1 轮轮空计 1 胜 / 1 分。
+    engine.record_result(r1_real[0].match_id, MatchResult(winner=r1_real[0].participant_a))
     by_id = {row.participant_id: row for row in engine.standings()}
-    assert by_id[bye.participant_a].wins == 1.0
-    assert by_id[bye.participant_a].points == 1.0
+    assert by_id[r1_bye.participant_a].wins == 1.0
+    assert by_id[r1_bye.participant_a].points == 1.0
+
+    # 打完第 1 轮 -> 第 2 轮物化（5 人第 2 轮也有轮空）。
+    engine.record_result(r1_real[1].match_id, MatchResult(winner=r1_real[1].participant_a))
+    r2 = engine.generate_next_round()
+    assert r2 is not None and r2.round_number == 2
+    r2_bye = next(m for m in r2.matches if m.is_bye)
+
+    # 第 2 轮尚未开打：第 2 轮轮空不计分（第 1 轮轮空仍正常计分）。
+    by_id = {row.participant_id: row for row in engine.standings()}
+    assert by_id[r2_bye.participant_a].wins == 0.0
+    assert by_id[r1_bye.participant_a].wins == 1.0
+
+    # 第 2 轮第一场真实结果落地：第 2 轮轮空开始计 1 分。
+    r2_real = [m for m in r2.matches if not m.is_bye]
+    engine.record_result(r2_real[0].match_id, MatchResult(winner=r2_real[0].participant_a))
+    by_id = {row.participant_id: row for row in engine.standings()}
+    assert by_id[r2_bye.participant_a].wins == 1.0
 
 
 def test_bye_goes_to_lowest_ranked_each_round():

@@ -18,6 +18,8 @@ Fixed semantics (plan.md §七 + Metis review):
   automatically in ``standings`` (no result may be recorded for it). Byes are
   spread so no participant receives two while un-byed participants remain; the
   bye goes to the lowest-ranked participant that has not yet had one.
+  **计分门槛（用户确认）**：轮空只在轮空所在轮次已有真实对局结果（该轮已
+  开始）后计入 —— 比赛未开始、或下一轮虽已物化但尚未开打时，该轮空不计分。
 - Buchholz (对手分): the sum of the FINAL points of all opponents a participant
   has actually played (recorded real matches only; byes contribute nothing).
 - V1 同分决胜: points desc → Buchholz desc → net_score desc → seed asc.
@@ -182,11 +184,16 @@ class SwissEngine(TournamentEngine):
         net: dict[int, float] = {pid: 0.0 for pid in self.participants}
 
         for r in self._schedule:
+            # 轮空计分门槛（用户确认）：轮空所在轮次自身已有真实对局产生结果
+            # （该轮已开始）时才计 1 胜/1 分。下一轮尚未开打时，即使该轮
+            # 轮空行已随赛程物化（如 5 人赛第 2 轮的轮空），也不提前加分。
+            round_started = any(
+                not m.is_bye and m.match_id in self._results for m in r.matches
+            )
             for m in r.matches:
                 if m.is_bye:
-                    # Metis E2: bye = 1 win / 1 point, 0 net score. 比赛未开始
-                    # （尚无任何真实对局结果）时不计轮空分，排行榜保持全 0。
-                    if not self._results:
+                    # Metis E2: bye = 1 win / 1 point, 0 net score.
+                    if not round_started:
                         continue
                     wins[m.participant_a] += 1.0
                     points[m.participant_a] += 1.0

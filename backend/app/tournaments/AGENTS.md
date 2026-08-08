@@ -25,6 +25,8 @@
 ## TRAPS
 - 后续轮次参赛者由 `_resolve_participants(match_id)` 从已记录结果解析（轮空自动晋级）；feeder 无结果时抛 `ValueError`。`services/match_service.start_match` 靠它解析单败淘汰后续轮次。
 - `SingleElimEngine.is_complete()` 只看决赛是否有结果，季军赛不阻塞完成。
-- 轮空自动计分（swiss 1 胜 1 分 0 净分），不可记分；`standings` 里未完成真实对局不贡献。
+- 轮空自动计分（swiss 1 胜 1 分 0 净分），不可记分；**计分门槛（用户确认）**：
+  轮空只在轮空所在轮次已有真实对局结果（该轮已开始）后计入 —— 比赛未开始、
+  或下一轮虽已物化但未开打时，该轮空不计分；`standings` 里未完成真实对局不贡献。
 - swiss 赛程逐轮增量物化（base 契约中 Swiss 是例外）；`_perfect_match` 递归深度受 ≤50 人池约束。
 - swiss 平局：`wins` 不计入胜场，`draws` 计数 +1、`points` +0.5 —— 排序按 `points` 而非 `wins`，改排序链时勿混用。

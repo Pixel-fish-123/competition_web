@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -84,9 +85,24 @@ def _compute_neighbors(cell_id: int) -> list[int]:
     return neighbors
 
 
+def _to_int(value: Any, field: str, cell_id: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"格子 {cell_id} 的 {field} 必须是整数：{value!r}")
+    if isinstance(value, float) and not value.is_integer():
+        raise ValueError(f"格子 {cell_id} 的 {field} 必须是整数：{value!r}")
+    return int(value)
+
+
 def build_cells(cells_data: list[dict] | None = None) -> list[Cell]:
     cells: list[Cell] = []
-    data_map: dict[int, dict] = {d["id"]: d for d in (cells_data or [])}
+    data_map: dict[int, dict] = {}
+    for i, d in enumerate(cells_data or []):
+        if not isinstance(d, dict):
+            raise ValueError(f"第 {i + 1} 条自定义格子数据格式错误：应为对象")
+        cid = d.get("id")
+        if isinstance(cid, bool) or not isinstance(cid, int) or cid < 0 or cid > 20:
+            raise ValueError(f"第 {i + 1} 条自定义格子数据 id 无效：{cid!r}（应为 0-20 的整数）")
+        data_map[cid] = d
 
     for cell_id in range(27):
         if cell_id >= 21:
@@ -97,8 +113,8 @@ def build_cells(cells_data: list[dict] | None = None) -> list[Cell]:
         else:
             layer, _ = _get_layer_and_index(cell_id)
             d = data_map.get(cell_id, {})
-            diff = int(d.get("diff_score", 0))
-            bonus = int(d.get("task_bonus", 0))
+            diff = _to_int(d.get("diff_score", 0), "diff_score", cell_id)
+            bonus = _to_int(d.get("task_bonus", 0), "task_bonus", cell_id)
             cells.append(Cell(
                 id=cell_id, layer=layer, is_energy=False,
                 diff_score=diff,

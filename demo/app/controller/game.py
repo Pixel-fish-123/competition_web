@@ -340,6 +340,7 @@ class GameController:
             for nid in cur.neighbors:
                 nb = self.cells[nid]
                 if (nid not in block
+                        and nid != 0  # L1 已在 recalc_scores 单独计分，避免重复
                         and nb.owner == "attacker"
                         and nb.activated
                         and not nb.is_energy):

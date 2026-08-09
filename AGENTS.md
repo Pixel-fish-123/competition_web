@@ -36,7 +36,7 @@
 - Swiss and single-elimination engines: `backend/app/tournaments/AGENTS.md`.
 - Test fixtures and domain-specific test patterns: `backend/tests/AGENTS.md`.
 - Frontend-wide rules and page ownership: `frontend/AGENTS.md` and `frontend/src/views/AGENTS.md`.
-- Verified project/deployment context: `docs/README.md`, `docs/backend.md`, `docs/frontend.md`, and `docs/部署手册.md`.
+- Verified project/deployment context: `docs/README.md` and `docs/部署手册.md`.
 
 ## Development Data
 - `backend/seed.py` is idempotent and creates demo accounts (`admin/admin123`, `referee/referee123`, `player1`-`player8` with `player123`); never expose these credentials in production.

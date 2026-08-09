@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import math
 import os
 import re
 import sys
@@ -39,8 +40,11 @@ _clients: set[WebSocket] = set()
 # in /api/tick (that stops being called once the browser is closed), so it runs
 # in a background daemon thread. os._exit(0) works in both dev (`python
 # main/main.py`) and frozen (`三角占领赛时控制器.exe`) mode.
+# Headless mode is used for API smoke tests, which never hold a WebSocket
+# open, so the watchdog is disabled there.
 _EXIT_GRACE_SECONDS = 10.0
 _CHECK_INTERVAL_SECONDS = 2.0
+_HEADLESS = "--headless" in sys.argv
 _no_client_since: float | None = None
 _autoexit_stop = threading.Event()
 
@@ -64,6 +68,10 @@ def _auto_exit_loop() -> None:
         _autoexit_stop.wait(_CHECK_INTERVAL_SECONDS)
         if _autoexit_stop.is_set():
             return
+        if _HEADLESS:
+            # API smoke mode never keeps a WebSocket open; never self-exit.
+            _no_client_since = None
+            continue
         if len(_clients) > 0:
             # A client (re)connected: cancel any pending exit.
             _no_client_since = None
@@ -127,7 +135,10 @@ class TimeLimitReq(BaseModel):
 @router.post("/api/init")
 async def api_init(req: InitReq):
     if req.mode == "custom" and req.cells_data:
-        game.init(req.cells_data)
+        try:
+            game.init(req.cells_data)
+        except ValueError as e:
+            return JSONResponse(status_code=400, content={"ok": False, "error": str(e)})
     elif _songs is None:
         return JSONResponse(status_code=400, content={"ok": False, "error": "请先导入歌曲库"})
     else:
@@ -183,6 +194,8 @@ async def api_end():
 
 @router.post("/api/time_limit")
 async def api_time_limit(req: TimeLimitReq):
+    if not math.isfinite(req.minutes) or req.minutes <= 0:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "时间限制必须是正数（分钟）"})
     game.time_limit_minutes = req.minutes
     await broadcast_state()
     return {"ok": True, "state": game.to_state_dict()}

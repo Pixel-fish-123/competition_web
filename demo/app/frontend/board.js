@@ -101,6 +101,11 @@ function onCellClick(id) {
   if (id >= 21) return;
   if (!selectedTeam) { alert("请先在顶部选择阵营"); return; }
 
+  if (selectedTeam === "clear") {
+    apiPost("/api/cancel", { cell_id: id });
+    return;
+  }
+
   if (id === 0) {
     pendingL1 = { team: selectedTeam };
     document.getElementById("l1-modal").classList.remove("hidden");
@@ -108,11 +113,7 @@ function onCellClick(id) {
     return;
   }
 
-  if (selectedTeam === "clear") {
-    apiPost("/api/cancel", { cell_id: id });
-  } else {
-    apiPost("/api/occupy", { cell_id: id, team: selectedTeam });
-  }
+  apiPost("/api/occupy", { cell_id: id, team: selectedTeam });
 }
 
 function refreshState() {

@@ -146,6 +146,4 @@ competition_web/
 - 香港节点通常无需 ICP 备案，国内用户可直接访问。
 - SQLite 数据持久化在 `deploy/data/competition.db`，备份时必须保留 WAL 相关数据。
 
-完整的逐步部署手册见 [`docs/阿里云香港ECS部署.md`](阿里云香港ECS部署.md)。
-
-通用部署说明见 [`docs/部署手册.md`](部署手册.md)。
+完整的部署手册见 [`docs/部署手册.md`](部署手册.md)，其中包含通用部署（Docker / systemd 两方案）与「阿里云香港 ECS」专项步骤。

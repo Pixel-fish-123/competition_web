@@ -1,5 +1,12 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* 内置 CJK 字体兜底：无中文字体环境（如 Linux 无头浏览器截图）下，
+   中文与曲库特殊符号仍能正常渲染（子集字体覆盖全部曲名+界面文本） */
+@font-face {
+  font-family: "ScreenCJK";
+  src: url("/static/fonts/ScreenCJK.ttf") format("truetype");
+}
+
 :root {
   --bg: #000000;
   --bg-1: #0a0a0a;
@@ -25,7 +32,7 @@ html, body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: "IBM Plex Sans", "Microsoft YaHei", system-ui, sans-serif;
+  font-family: "IBM Plex Sans", "ScreenCJK", "Microsoft YaHei", system-ui, sans-serif;
   overflow: hidden;
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
@@ -45,14 +52,14 @@ html, body {
 }
 .brand { display: flex; align-items: baseline; gap: 14px; }
 .brand-title {
-  font-family: "Bebas Neue", sans-serif;
+  font-family: "Bebas Neue", "ScreenCJK", sans-serif;
   font-size: 30px;
   letter-spacing: 4px;
   color: var(--text);
   line-height: 1;
 }
 .brand-sub {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: "IBM Plex Mono", "ScreenCJK", monospace;
   font-size: 11px;
   letter-spacing: 2px;
   color: var(--gold);
@@ -68,7 +75,7 @@ html, body {
   border: 1px solid var(--line-2);
   background: transparent;
   color: var(--text-dim);
-  font-family: "IBM Plex Sans", sans-serif;
+  font-family: "IBM Plex Sans", "ScreenCJK", sans-serif;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.5px;
@@ -107,14 +114,14 @@ html, body {
 .score-def { align-items: flex-start; }
 .score-atk { align-items: flex-end; }
 .score-label {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: "IBM Plex Mono", "ScreenCJK", monospace;
   font-size: 11px;
   letter-spacing: 3px;
   text-transform: uppercase;
   color: var(--text-mute);
 }
 .score-num {
-  font-family: "Bebas Neue", sans-serif;
+  font-family: "Bebas Neue", "ScreenCJK", sans-serif;
   font-size: 88px;
   line-height: 0.85;
   letter-spacing: 1px;
@@ -125,7 +132,7 @@ html, body {
 
 .score-center { text-align: center; min-width: 200px; }
 .timer-num {
-  font-family: "Bebas Neue", sans-serif;
+  font-family: "Bebas Neue", "ScreenCJK", sans-serif;
   font-size: 56px;
   line-height: 1;
   color: var(--gold);
@@ -133,7 +140,7 @@ html, body {
   font-variant-numeric: tabular-nums;
 }
 .timer-limit {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: "IBM Plex Mono", "ScreenCJK", monospace;
   font-size: 11px;
   color: var(--text-mute);
   letter-spacing: 2px;
@@ -166,7 +173,7 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
 #info-panel { border-left: 1px solid var(--line); overflow-y: auto; }
 
 .panel-head {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: "IBM Plex Mono", "ScreenCJK", monospace;
   font-size: 11px;
   letter-spacing: 3px;
   text-transform: uppercase;
@@ -179,7 +186,7 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
 /* ===== EVENT LOG ===== */
 #event-list {
   list-style: none;
-  font-family: "IBM Plex Mono", monospace;
+  font-family: "IBM Plex Mono", "ScreenCJK", monospace;
   font-size: 11px;
   line-height: 1.6;
   max-height: calc(100vh - 240px);
@@ -230,7 +237,7 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
 .cell.hover-active { border-color: var(--gold); border-width: 2px; }
 
 .cell-song {
-  font-family: "IBM Plex Sans", "Microsoft YaHei", sans-serif;
+  font-family: "IBM Plex Sans", "ScreenCJK", "Microsoft YaHei", sans-serif;
   font-size: 14px;
   font-weight: 500;
   color: var(--text);
@@ -245,7 +252,7 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
   justify-content: center;
 }
 .cell-diff {
-  font-family: "IBM Plex Sans", "Microsoft YaHei", sans-serif;
+  font-family: "IBM Plex Sans", "ScreenCJK", "Microsoft YaHei", sans-serif;
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
@@ -256,7 +263,7 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
   min-height: 17px;
 }
 .cell-task {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: "IBM Plex Mono", "ScreenCJK", monospace;
   font-size: 11px;
   font-weight: 700;
   color: var(--text);
@@ -275,7 +282,7 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
   position: absolute;
   top: 4px;
   right: 6px;
-  font-family: "IBM Plex Mono", monospace;
+  font-family: "IBM Plex Mono", "ScreenCJK", monospace;
   font-size: 12px;
   font-weight: 600;
   color: var(--gold);
@@ -346,7 +353,7 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
 /* ===== INFO PANEL ===== */
 .info-block { margin-bottom: 16px; }
 .info-key {
-  font-family: "IBM Plex Mono", monospace;
+  font-family: "IBM Plex Mono", "ScreenCJK", monospace;
   font-size: 10px;
   letter-spacing: 2px;
   text-transform: uppercase;
@@ -366,7 +373,7 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
   align-items: center;
   gap: 8px;
   padding: 3px 0;
-  font-family: "IBM Plex Mono", monospace;
+  font-family: "IBM Plex Mono", "ScreenCJK", monospace;
   font-size: 10px;
   color: var(--text-dim);
 }
@@ -381,7 +388,7 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
 #bottombar {
   padding: 10px 28px;
   border-top: 1px solid var(--line);
-  font-family: "IBM Plex Mono", monospace;
+  font-family: "IBM Plex Mono", "ScreenCJK", monospace;
   font-size: 11px;
   letter-spacing: 1px;
   color: var(--text-mute);
@@ -409,7 +416,7 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
   min-width: 300px;
 }
 .modal-title {
-  font-family: "Bebas Neue", sans-serif;
+  font-family: "Bebas Neue", "ScreenCJK", sans-serif;
   font-size: 24px;
   letter-spacing: 2px;
   color: var(--gold);
@@ -418,7 +425,7 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
   display: flex;
   flex-direction: column;
   gap: 5px;
-  font-family: "IBM Plex Mono", monospace;
+  font-family: "IBM Plex Mono", "ScreenCJK", monospace;
   font-size: 11px;
   letter-spacing: 1px;
   color: var(--text-mute);
@@ -429,7 +436,7 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
   background: var(--bg);
   color: var(--text);
   border: 1px solid var(--line-2);
-  font-family: "IBM Plex Mono", monospace;
+  font-family: "IBM Plex Mono", "ScreenCJK", monospace;
   font-size: 14px;
   border-radius: 0;
 }

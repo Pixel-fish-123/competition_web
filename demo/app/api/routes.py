@@ -47,6 +47,8 @@ _V1_RATE_MIN_INTERVAL = 3.0        # 两次上传最小间隔 3s
 _V1_DEDUPE_SECONDS = 60.0          # 同歌同队同玩家短时间去重窗口
 _V1_BATCH_MAX = 50                 # 单次批量上限
 _V1_CACHE_MAX = 5000
+# 严格任务校验：上传成绩必须满足格子任务要求（STRICT_TASK_CHECK=0 可关闭）
+_STRICT_TASK_CHECK = os.environ.get("STRICT_TASK_CHECK", "1") != "0"
 
 _MATCH_TOKEN: str | None = None
 _TEAM_TOKENS: dict[str, str] = {}
@@ -503,6 +505,52 @@ def _v1_find_cell(song_name: str):
     return next((c for c in game.cells[:21] if c.song_name == song_name), None)
 
 
+_TASK_MM_RE = re.compile(r"达成\s*MM", re.I)
+_TASK_FC_RE = re.compile(r"达成\s*FULL\s*COMBO", re.I)
+_TASK_TP_RE = re.compile(r"达成\s*tp\s*([\d.]+)\s*以上", re.I)
+_TASK_W_RE = re.compile(r"达成\s*([\d.]+)\s*w以上", re.I)
+_TASK_MBG_RE = re.compile(r"达成\s*miss\s*<=\s*(\d+)\s*,\s*bad\s*<=\s*(\d+)\s*,\s*good\s*<=\s*(\d+)", re.I)
+
+
+def _task_issue(task_name: str, result: dict) -> str | None:
+    """按任务名校验成绩，返回第一个未满足的条件描述；满足或无法校验返回 None。"""
+    if not task_name or "L1" in task_name:
+        return None
+    if _TASK_MM_RE.search(task_name):
+        if result.get("mm") is False:
+            return "未达成 MM"
+        return None
+    if _TASK_FC_RE.search(task_name):
+        fc = result.get("full_combo")
+        miss = result.get("miss")
+        if fc is False or (fc is None and miss not in (None, 0)):
+            return "未达成 FULL COMBO"
+        return None
+    if _TASK_TP_RE.search(task_name):
+        need = float(_TASK_TP_RE.search(task_name).group(1))
+        tp = result.get("tp")
+        if tp is not None and tp < need:
+            return f"tp={tp} < {need}"
+        return None
+    if _TASK_W_RE.search(task_name):
+        need = float(_TASK_W_RE.search(task_name).group(1)) * 10000
+        score = result.get("score")
+        if score is not None and score < need:
+            return f"score={score:,} < {need:,.0f}"
+        return None
+    if _TASK_MBG_RE.search(task_name):
+        m = _TASK_MBG_RE.search(task_name)
+        lim_m, lim_b, lim_g = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if result.get("miss") is not None and result["miss"] > lim_m:
+            return f"miss={result['miss']} > {lim_m}"
+        if result.get("bad") is not None and result["bad"] > lim_b:
+            return f"bad={result['bad']} > {lim_b}"
+        if result.get("good") is not None and result["good"] > lim_g:
+            return f"good={result['good']} > {lim_g}"
+        return None
+    return None
+
+
 def _v1_elapsed() -> str:
     total = int(game.elapsed() * 60)
     return f"{total // 60:02d}:{total % 60:02d}"
@@ -545,6 +593,10 @@ async def _v1_handle_item(data: dict, request_id: str) -> tuple[int, dict]:
             outcome = "l1_holder" if game.l1_high_team == data["team"] else "l1_challenged_lost"
             await broadcast_state()
         elif cell.owner is None:
+            if _STRICT_TASK_CHECK:
+                issue = _task_issue(cell.task_name, data)
+                if issue is not None:
+                    return 422, {"ok": False, "code": "TASK_NOT_SATISFIED", "message": f"成绩不满足任务要求（{issue}）：{cell.task_name}", "request_id": request_id}
             game.occupy(cell.id, data["team"], data["score"], data["tp"])
             outcome = "occupied"
             await broadcast_state()

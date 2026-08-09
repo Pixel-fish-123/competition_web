@@ -1,0 +1,50 @@
+# AGENTS.md
+
+## 项目定位
+
+- 这是一个单机本地运行的 Python/FastAPI + 原生 JavaScript 音游比赛计分器。
+- 所有命令从仓库根目录执行；项目代码集中在 `app/`，真实入口是 `app/main/main.py`。
+- Python 3.10+，运行时无数据库和前端构建步骤。
+
+## 常用命令
+
+```bash
+python -m pip install -r app/main/requirements.txt
+python app/main/main.py
+python app/main/main.py --headless
+```
+
+- 默认访问 `http://127.0.0.1:8000`；程序会在 8000、8001、8002 中选择端口。
+- `--headless` 禁止自动打开浏览器，适合 API 冒烟；Windows 用户也可双击 `app/main/启动服务.bat`。
+
+## 代码边界
+
+- `app/main/main.py` 创建 FastAPI 应用并挂载 `app/frontend/`；`app/api/routes.py` 保存全局 `GameController`，提供 REST/WebSocket 接口。
+- `app/controller/` 是无第三方依赖的游戏核心；`app/config/rules.json` 是任务和难度规则的外部来源。
+- `app/frontend/` 是无框架静态页面；`app/tools/gen_test_songs.py` 在根目录生成 `test_songs.json`。
+- 随机开局必须先 `POST /api/songs` 导入至少 23 首且歌名唯一的歌曲，再 `POST /api/init`。
+
+## 易错规则
+
+- 占领变化后的顺序不可改变：`update_activation` → `check_encirclement` → `recalc_scores` → `check_top_victory`。
+- 普通格占领不可覆盖；只有 L1 可反复争夺（score/tp 挑战）。
+- **L1 完全豁免包围**：不进入包围集合、无包围样式/`[包围]` 标注、不受退化影响，双方可反复争夺直至游戏结束。
+- **包围每局只触发一次**：触发后 `encircled_cells` 永久标记（不解除、不二次触发）；触发时包围区内非守护者占领的地块自动退化为未占领（owner→None、activated=False）。
+- 进攻方未激活格不计分；L1 占领本身计分，但只有激活后才触发顶端直胜。
+- 能源加成是 `min(energy_count - 1, 2)`，每格最高 `+2`。
+- 歌曲得分只看等级数值，`type` 前缀（Chaos/Glitch/Hard）无关；歌曲缺 `level` 或 level 非法 → 400（带下标中文错误），不得 500。
+- 导出日志和截图在开发模式写入 `app/exports/`；打包 exe 时写入 exe 同目录的 `exports/`。
+
+## 验证
+
+仓库没有测试框架。修改 Python 核心后至少运行：
+
+```bash
+python -c "import sys; sys.path.insert(0, 'app'); from controller.task_gen import generate_tasks; from controller.game import GameController; g=GameController(); g.init(generate_tasks(42)); print('ok', len(g.cells))"
+python app/tools/gen_test_songs.py --seed 1
+python -c "import sys; sys.path.insert(0, 'app'); import json; from controller.song_lib import parse_song_library; d=json.load(open('test_songs.json',encoding='utf-8')); print('songs', len(parse_song_library(d)))"
+```
+
+歌曲库 API 冒烟顺序是 `POST /api/songs` 后再 `POST /api/init`；未导入歌曲库会返回 400。需要分发时运行 `pyinstaller app/packaging/build.spec --workpath app/packaging/build --distpath app/packaging/dist`，不要把 `app/packaging/build/`、`app/packaging/dist/`、`__pycache__/` 或 `app/exports/` 当作源码修改。
+
+详细算法、API 和玩法说明见 `app/docs/plan.md`；开发计划见 `app/docs/plans/`。

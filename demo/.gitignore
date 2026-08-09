@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+dist/
+exports/
+.codegraph/
+.omo/
+app/exports/
+app/packaging/build/
+app/packaging/dist/
+app/.opencode/node_modules/

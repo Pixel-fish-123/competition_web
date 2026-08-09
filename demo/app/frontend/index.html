@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>萌新杯 · 赛时控制器</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css?v=20260811">
+</head>
+<body>
+<div id="app">
+
+  <header id="topbar">
+    <div class="brand">
+      <h1 class="brand-title">萌新杯</h1>
+    </div>
+    <div class="controls">
+      <div class="team-select" role="group" aria-label="选择阵营">
+        <button class="pick pick-def" data-team="defender"><span class="swatch"></span>守护者</button>
+        <button class="pick pick-atk" data-team="attacker"><span class="swatch"></span>掠夺者</button>
+        <button class="pick pick-clr" data-team="clear">清除</button>
+      </div>
+      <span class="vbar"></span>
+      <button id="import-songs" class="act">导入歌曲库</button>
+      <button id="init-random" class="act">随机开局</button>
+      <button id="export-log" class="act">导出日志</button>
+      <button id="screenshot" class="act">截图</button>
+      <button id="end-game" class="act act-danger">结束</button>
+    </div>
+  </header>
+
+  <div id="scoreboard">
+    <div class="score-side score-def">
+      <span class="score-label">守护者</span>
+      <span class="score-num" id="defender-score">0</span>
+    </div>
+    <div class="score-center">
+      <div class="timer-num" id="timer-display">00:00</div>
+      <div class="timer-limit">/ 25:00</div>
+      <div class="timer-track"><div class="timer-bar" id="timer-fill"></div></div>
+    </div>
+    <div class="score-side score-atk">
+      <span class="score-label">掠夺者</span>
+      <span class="score-num" id="attacker-score">0</span>
+    </div>
+  </div>
+
+  <main id="main">
+    <aside id="log-panel">
+      <div class="panel-head">事件日志</div>
+      <ul id="event-list"></ul>
+    </aside>
+
+    <section id="board-area">
+      <div id="pyramid"></div>
+      <div id="l1-modal" class="modal hidden">
+        <div class="modal-box">
+          <div class="modal-title">L1 矿脉源头</div>
+          <label>分数<input type="number" id="l1-score" placeholder="985432"></label>
+          <label>TP<input type="number" id="l1-tp" step="0.01" placeholder="99.5"></label>
+          <div class="modal-btns">
+            <button id="l1-cancel-btn" class="act">取消</button>
+            <button id="l1-confirm-btn" class="act act-gold">确认</button>
+          </div>
+        </div>
+      </div>
+      <div id="songs-modal" class="modal hidden">
+        <div class="modal-box">
+          <div class="modal-title">导入歌曲库</div>
+          <label>粘贴歌曲库 JSON<textarea id="songs-json" style="width:100%;height:200px;background:#111;color:#eaeaea;font-family:monospace;border:1px solid #333"></textarea></label>
+          <div class="modal-btns">
+            <button id="songs-cancel-btn" class="act">取消</button>
+            <button id="songs-confirm-btn" class="act act-gold">确认</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <aside id="info-panel">
+      <div class="panel-head">战况</div>
+      <div class="info-block">
+        <div class="info-key">L1 源头</div>
+        <div class="info-val" id="l1-status">未占领</div>
+      </div>
+      <div class="info-block">
+        <div class="info-key">包围</div>
+        <div class="info-val" id="encircle-status">未触发</div>
+      </div>
+      <div class="info-block info-detail">
+        <div class="info-key">格子详情</div>
+        <div class="info-val" id="cell-detail">悬停查看</div>
+      </div>
+      <div class="legend">
+        <div class="lg-row"><span class="lg lg-def"></span>守护者</div>
+        <div class="lg-row"><span class="lg lg-atk-on"></span>掠夺者 已激活</div>
+        <div class="lg-row"><span class="lg lg-atk-off"></span>掠夺者 未激活</div>
+        <div class="lg-row"><span class="lg lg-empty"></span>空</div>
+        <div class="lg-row"><span class="lg lg-energy"></span>能源</div>
+      </div>
+    </aside>
+  </main>
+
+  <footer id="bottombar">
+    <span id="game-phase">未开始</span>
+    <span id="winner-banner"></span>
+  </footer>
+</div>
+
+<script src="/static/ws.js"></script>
+<script src="/static/board.js"></script>
+<script src="/static/panel.js"></script>
+<script src="/static/events.js"></script>
+</body>
+</html>

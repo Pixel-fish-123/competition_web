@@ -529,7 +529,7 @@ POST /api/songs 导入歌曲库（≥23 首，歌名唯一）→ POST /api/init
 ```bash
 pip install -r requirements.txt
 python app/main/main.py
-# 浏览器访问 http://127.0.0.1:8000
+# 浏览器访问 http://127.0.0.1:8001
 
 # 或双击脚本
 启动服务.bat      # 启动 + 自动开浏览器
@@ -715,7 +715,7 @@ python -c "import json; from controller.song_lib import parse_song_library; d=js
 
 ```bash
 python app/main/main.py
-# 浏览器访问 http://127.0.0.1:8000
+# 浏览器访问 http://127.0.0.1:8001
 ```
 
 ### 操作流程

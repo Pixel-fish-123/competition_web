@@ -38,8 +38,8 @@ if ($LASTEXITCODE -ne 0) {
     }
 }
 
-# 端口候选，与 main/main.py 的 select_port 保持一致
-$ports = @(8000, 8001, 8002)
+# 端口候选，与 main/main.py 的 select_port 保持一致（8000 预留给比赛网站）
+$ports = @(8001, 8002, 8003)
 $finalPort = $null
 
 # 检查是否已有本服务在运行（可能已有实例）

@@ -79,7 +79,7 @@ def _log(msg: str) -> None:
 async def lifespan(_: FastAPI):
     # Runs after the server has started (uvicorn startup event).
     if not HEADLESS:
-        port = int(os.environ.get("TRIANGLE_CONTROLLER_PORT", "8000"))
+        port = int(os.environ.get("TRIANGLE_CONTROLLER_PORT", "8001"))
         try:
             ok = webbrowser.open(f"http://127.0.0.1:{port}")
             _log(f"[browser] webbrowser.open -> {ok} http://127.0.0.1:{port}")
@@ -128,7 +128,7 @@ def _is_our_service(port: int) -> bool:
         return False
 
 
-def select_port(candidates=(8000, 8001, 8002)) -> tuple[int, bool]:
+def select_port(candidates=(8001, 8002, 8003)) -> tuple[int, bool]:
     """Return (port, already_running).
 
     - Free port  -> we run the server on it.
@@ -141,7 +141,7 @@ def select_port(candidates=(8000, 8001, 8002)) -> tuple[int, bool]:
         if _is_our_service(port):
             return port, True
         _log(f"[port] {port} busy by another program, trying next port...")
-    raise RuntimeError("端口 8000-8002 均被占用，无法启动服务")
+    raise RuntimeError("端口 8001-8003 均被占用，无法启动服务")
 
 
 if __name__ == "__main__":

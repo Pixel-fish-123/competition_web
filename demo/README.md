@@ -11,7 +11,7 @@ python -m pip install -r app/main/requirements.txt
 python app/main/main.py
 ```
 
-浏览器访问 `http://127.0.0.1:8000`。服务会自动尝试 8001、8002；不需要浏览器时使用 `python app/main/main.py --headless`（仅提供 API，不会自动退出，适合冒烟测试）。Windows 用户可以双击 `app/main/启动服务.bat`。
+浏览器访问 `http://127.0.0.1:8001`。服务会自动尝试 8002、8003（8000 预留给比赛网站）；不需要浏览器时使用 `python app/main/main.py --headless`（仅提供 API，不会自动退出，适合冒烟测试）。Windows 用户可以双击 `app/main/启动服务.bat`。
 
 ## 操作
 

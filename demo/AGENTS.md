@@ -14,7 +14,7 @@ python app/main/main.py
 python app/main/main.py --headless
 ```
 
-- 默认访问 `http://127.0.0.1:8000`；程序会在 8000、8001、8002 中选择端口。
+- 默认访问 `http://127.0.0.1:8001`；程序会在 8001、8002、8003 中选择端口（8000 预留给比赛网站）。
 - `--headless` 禁止自动打开浏览器，适合 API 冒烟；Windows 用户也可双击 `app/main/启动服务.bat`。
 
 ## 代码边界

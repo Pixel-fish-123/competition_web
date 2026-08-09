@@ -117,21 +117,30 @@ def register(
             .first()
         )
         if already is not None:
-            raise HTTPException(status_code=400, detail="该队伍已报名")
-        registration = Registration(
-            competition_id=competition_id,
-            participant_type="team",
-            team_id=team.id,
-            user_id=team.captain_id,  # captain's id = the participant unit
-        )
+            if already.status != "rejected":
+                raise HTTPException(status_code=400, detail="该队伍已报名")
+            # 被拒绝后可重新报名：复用该行并重置为 pending（不占名额，见下）。
+            registration = already
+        else:
+            registration = Registration(
+                competition_id=competition_id,
+                participant_type="team",
+                team_id=team.id,
+                user_id=team.captain_id,  # captain's id = the participant unit
+            )
     else:  # individual
-        if _existing_registration(db, competition_id, user) is not None:
-            raise HTTPException(status_code=400, detail="已报名")
-        registration = Registration(
-            competition_id=competition_id,
-            participant_type="individual",
-            user_id=user.id,
-        )
+        existing = _existing_registration(db, competition_id, user)
+        if existing is not None:
+            if existing.status != "rejected":
+                raise HTTPException(status_code=400, detail="已报名")
+            # 被拒绝后可重新报名：复用该行并重置为 pending。
+            registration = existing
+        else:
+            registration = Registration(
+                competition_id=competition_id,
+                participant_type="individual",
+                user_id=user.id,
+            )
 
     # Duplicate checks come before capacity so an already-registered user gets
     # "已报名" even when the competition is full (the slot is theirs anyway).

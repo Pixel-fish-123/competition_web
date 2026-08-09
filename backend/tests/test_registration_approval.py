@@ -191,3 +191,60 @@ def test_approve_unknown_competition_returns_404(admin_client, client):
     resp = _approve(admin_client, 9999, reg["id"])
     assert resp.status_code == 404
     assert resp.json()["detail"] == "比赛不存在"
+
+
+# -------------------------------------------- 被拒绝后可重新报名（bug 回归）
+
+
+def test_rejected_registration_can_reapply_individual(admin_client, client):
+    """报名被拒绝（rejected）后不得卡死：可重新报名，行重置为 pending。"""
+    admin_token = admin_client.cookies.get("token")
+    referee_id = _make_referee(admin_client, admin_token)
+    comp_id = _create_competition(admin_client, referee_id)
+    _transition(admin_client, comp_id, "registration")
+
+    _register(client, "ap_reapply", "apreapply@example.com")
+    reg = _register_player(client, comp_id)
+    assert _reject(admin_client, comp_id, reg["id"]).status_code == 200
+
+    # 重新报名 -> 200，行复用并回到 pending（修复前此处 400「已报名」）。
+    resp = client.post(
+        f"/api/competitions/{comp_id}/register",
+        json={"participant_type": "individual"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "pending"
+    assert resp.json()["id"] == reg["id"]  # 复用同一行
+
+    # 重新报名后可再次被审批。
+    assert _approve(admin_client, comp_id, reg["id"]).status_code == 200
+
+
+def test_rejected_team_registration_can_reapply(admin_client, client):
+    """队伍报名被拒绝后可重新报名（复用行重置 pending）。"""
+    admin_token = admin_client.cookies.get("token")
+    referee_id = _make_referee(admin_client, admin_token)
+    comp_id = _create_competition(admin_client, referee_id)
+    _transition(admin_client, comp_id, "registration")
+
+    captain_id, _ = _register(client, "ap_captain", "apcaptain@example.com")
+    team_resp = client.post("/api/teams", json={"name": "重报战队"})
+    assert team_resp.status_code == 200, team_resp.text
+    team_id = team_resp.json()["id"]
+
+    reg_resp = client.post(
+        f"/api/competitions/{comp_id}/register",
+        json={"participant_type": "team", "team_id": team_id},
+    )
+    assert reg_resp.status_code == 200, reg_resp.text
+    reg_id = reg_resp.json()["id"]
+    assert _reject(admin_client, comp_id, reg_id).status_code == 200
+
+    # 重新报名 -> 200（修复前此处 400「该队伍已报名」）。
+    resp = client.post(
+        f"/api/competitions/{comp_id}/register",
+        json={"participant_type": "team", "team_id": team_id},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "pending"
+    assert resp.json()["id"] == reg_id

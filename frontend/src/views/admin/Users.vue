@@ -32,6 +32,12 @@
           <span v-else class="nickname-empty">—</span>
         </template>
       </el-table-column>
+      <el-table-column label="QQ" min-width="120">
+        <template #default="{ row }">
+          <span v-if="row.qq">{{ row.qq }}</span>
+          <span v-else class="nickname-empty">—</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="email" label="邮箱" min-width="180" />
       <el-table-column label="角色" width="150">
         <template #default="{ row }">
@@ -81,6 +87,9 @@
         <el-form-item label="密码">
           <el-input v-model="createForm.password" type="password" show-password placeholder="至少 6 位" />
         </el-form-item>
+        <el-form-item label="QQ">
+          <el-input v-model="createForm.qq" placeholder="选填，仅数字" maxlength="20" />
+        </el-form-item>
         <el-form-item label="角色">
           <el-select v-model="createForm.role" placeholder="选择角色" style="width: 100%">
             <el-option label="管理员" value="admin" />
@@ -122,6 +131,7 @@ interface UserRow {
   id: number
   username: string
   nickname: string | null
+  qq: string | null
   email: string
   role: string
   status: string
@@ -135,7 +145,7 @@ const roleFilter = ref('')
 
 const createVisible = ref(false)
 const creating = ref(false)
-const createForm = ref({ username: '', email: '', password: '', role: '' })
+const createForm = ref({ username: '', email: '', password: '', role: '', qq: '' })
 const deletingId = ref<number | null>(null)
 
 const ROLE_LABELS: Record<string, string> = {
@@ -223,7 +233,7 @@ async function doReset() {
 }
 
 function openCreate() {
-  createForm.value = { username: '', email: '', password: '', role: 'player' }
+  createForm.value = { username: '', email: '', password: '', role: 'player', qq: '' }
   createVisible.value = true
 }
 
@@ -245,6 +255,11 @@ async function doCreate() {
     ElMessage.warning('请选择角色')
     return
   }
+  const qq = f.qq.trim()
+  if (qq && !/^\d+$/.test(qq)) {
+    ElMessage.warning('QQ 号应为纯数字')
+    return
+  }
   creating.value = true
   try {
     await http.post('/admin/users', {
@@ -252,6 +267,7 @@ async function doCreate() {
       email: f.email.trim(),
       password: f.password,
       role: f.role,
+      qq: qq || undefined,
     })
     ElMessage.success('用户已创建')
     createVisible.value = false

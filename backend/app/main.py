@@ -32,6 +32,7 @@ from app.api.matches import router as matches_router
 from app.api.points import router as points_router
 from app.api.rankings import router as rankings_router
 from app.api.registrations import router as registrations_router
+from app.api.schedule import router as schedule_router
 from app.api.teams import router as teams_router
 from app.api.ws import router as ws_router
 from app.core.csrf import CSRFMiddleware
@@ -47,6 +48,7 @@ def _ensure_schema_upgrades() -> None:
     create_all 建表时已含该列，PRAGMA 检测到后直接跳过。PRAGMA table_info
     返回行的 ``name`` 字段在下标 1。目前升级项：
     - ``users.nickname``（历史遗留）
+    - ``users.qq``（选手 QQ，机器人 @ 选手用）
     - ``matches.gameplay_log``（玩法日志导入字段）
     - ``matches.result_locked``（保存结果锁定，issue 14）
     - ``competitions`` 剔除玩法插件/积分规则/曲库列（issue 6，SQLite
@@ -56,6 +58,8 @@ def _ensure_schema_upgrades() -> None:
         users = conn.execute(text("PRAGMA table_info(users)")).fetchall()
         if users and not any(row[1] == "nickname" for row in users):
             conn.execute(text("ALTER TABLE users ADD COLUMN nickname VARCHAR(50)"))
+        if users and not any(row[1] == "qq" for row in users):
+            conn.execute(text("ALTER TABLE users ADD COLUMN qq VARCHAR(20)"))
         matches = conn.execute(text("PRAGMA table_info(matches)")).fetchall()
         if matches and not any(row[1] == "gameplay_log" for row in matches):
             conn.execute(text("ALTER TABLE matches ADD COLUMN gameplay_log JSON"))
@@ -149,6 +153,7 @@ app.include_router(admin_ipban_router)
 app.include_router(announcements_router)
 app.include_router(teams_router)
 app.include_router(registrations_router)
+app.include_router(schedule_router)
 app.include_router(competitions_router)
 app.include_router(matches_router)
 app.include_router(points_router)

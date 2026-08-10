@@ -59,6 +59,13 @@
                 placeholder="参赛展示用昵称，2-30 个字符"
               />
             </el-form-item>
+            <el-form-item label="QQ（选填）" prop="qq">
+              <el-input
+                v-model="registerForm.qq"
+                placeholder="机器人 @ 选手用，仅数字"
+                maxlength="20"
+              />
+            </el-form-item>
             <el-form-item label="邮箱" prop="email">
               <el-input
                 v-model="registerForm.email"
@@ -124,6 +131,7 @@ const loginForm = reactive({
 const registerForm = reactive({
   username: '',
   nickname: '',
+  qq: '',
   email: '',
   password: '',
   confirm: '',
@@ -144,6 +152,18 @@ const registerRules: FormRules = {
       validator: (_rule, value: string, callback) => {
         if (value && (value.length < 2 || value.length > 30)) {
           callback(new Error('昵称需为 2-30 个字符'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur',
+    },
+  ],
+  qq: [
+    {
+      validator: (_rule, value: string, callback) => {
+        if (value && !/^\d+$/.test(value)) {
+          callback(new Error('QQ 号应为纯数字'))
         } else {
           callback()
         }
@@ -230,6 +250,7 @@ async function handleRegister() {
       registerForm.email,
       registerForm.password,
       registerForm.nickname.trim() || undefined,
+      registerForm.qq.trim() || undefined,
     )
     ElMessage.success('注册成功，已自动登录')
     redirectAfterAuth()

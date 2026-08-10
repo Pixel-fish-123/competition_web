@@ -15,6 +15,7 @@ class RegisterRequest(BaseModel):
     email: str
     password: str = Field(min_length=6, max_length=64)
     nickname: str | None = Field(default=None, min_length=2, max_length=30)
+    qq: str | None = Field(default=None, max_length=20)
 
     @field_validator("email")
     @classmethod
@@ -22,6 +23,18 @@ class RegisterRequest(BaseModel):
         value = value.strip()
         if len(value) > 120 or not EMAIL_RE.match(value):
             raise ValueError("邮箱格式不正确")
+        return value
+
+    @field_validator("qq")
+    @classmethod
+    def _validate_qq(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        if not value.isdigit() or len(value) > 20:
+            raise ValueError("QQ 号应为纯数字")
         return value
 
 
@@ -40,15 +53,41 @@ class UserPatchRequest(BaseModel):
 
     role: str | None = Field(default=None)
     password: str | None = Field(default=None, min_length=6, max_length=64)
+    qq: str | None = Field(default=None, max_length=20)
+
+    @field_validator("qq")
+    @classmethod
+    def _validate_qq(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return ""  # 空串 = 清除 QQ（与个人资料修改一致）
+        if not value.isdigit() or len(value) > 20:
+            raise ValueError("QQ 号应为纯数字")
+        return value
 
 
 class UserMePatchRequest(BaseModel):
-    """普通用户修改自己的资料（目前仅昵称）。
+    """普通用户修改自己的资料（昵称 / QQ）。
 
     ``None`` 表示不修改该字段；空串会被 min_length=1 拒绝（422）。
     """
 
     nickname: str | None = Field(default=None, min_length=2, max_length=30)
+    qq: str | None = Field(default=None, max_length=20)
+
+    @field_validator("qq")
+    @classmethod
+    def _validate_qq(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return ""  # 空串 = 清除 QQ
+        if not value.isdigit() or len(value) > 20:
+            raise ValueError("QQ 号应为纯数字")
+        return value
 
 
 class UserOut(BaseModel):
@@ -58,6 +97,7 @@ class UserOut(BaseModel):
     username: str
     email: str
     nickname: str | None
+    qq: str | None
     role: str
     status: str
     created_at: datetime

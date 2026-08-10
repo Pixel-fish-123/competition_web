@@ -6,6 +6,7 @@ export interface AuthUser {
   username: string
   email: string
   nickname: string | null
+  qq: string | null
   role: string
   status: string
   created_at: string
@@ -53,6 +54,7 @@ export const useAuthStore = defineStore('auth', {
       email: string,
       password: string,
       nickname?: string,
+      qq?: string,
     ): Promise<AuthUser> {
       const body: Record<string, string> = {
         username,
@@ -61,14 +63,15 @@ export const useAuthStore = defineStore('auth', {
       }
       // Optional display nickname: only send when a non-empty value is provided.
       if (nickname) body.nickname = nickname
+      if (qq) body.qq = qq
       const { data } = await http.post<AuthUser>('/auth/register', body)
       // Registration auto-logs in (backend sets httpOnly cookie + returns UserOut).
       this.user = data
       this.loaded = true
       return data
     },
-    async updateNickname(nickname: string): Promise<AuthUser> {
-      const { data } = await http.patch<AuthUser>('/auth/me', { nickname })
+    async updateProfile(partial: { nickname?: string; qq?: string }): Promise<AuthUser> {
+      const { data } = await http.patch<AuthUser>('/auth/me', partial)
       this.user = data
       return data
     },

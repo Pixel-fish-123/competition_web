@@ -7,11 +7,12 @@
       <section class="profile__section">
         <div class="profile__head">
           <h2>我的信息</h2>
-          <el-button size="small" @click="openNicknameDialog">修改昵称</el-button>
+          <el-button size="small" @click="openProfileDialog">修改资料</el-button>
         </div>
         <el-descriptions :column="2" border>
           <el-descriptions-item label="用户名">{{ auth.user.username }}</el-descriptions-item>
           <el-descriptions-item label="昵称">{{ auth.user.nickname || auth.user.username }}</el-descriptions-item>
+          <el-descriptions-item label="QQ">{{ auth.user.qq || '未填写' }}</el-descriptions-item>
           <el-descriptions-item label="邮箱">{{ auth.user.email }}</el-descriptions-item>
           <el-descriptions-item label="角色">{{ roleLabel(auth.user.role) }}</el-descriptions-item>
           <el-descriptions-item label="状态">{{ statusLabel(auth.user.status) }}</el-descriptions-item>
@@ -136,21 +137,28 @@
       </template>
     </el-dialog>
 
-    <!-- 修改昵称对话框 -->
-    <el-dialog v-model="nicknameDialogVisible" title="修改昵称" width="420px">
+    <!-- 修改资料对话框 -->
+    <el-dialog v-model="profileDialogVisible" title="修改资料" width="420px">
       <el-form label-width="80px" @submit.prevent>
         <el-form-item label="昵称" required>
           <el-input
-            v-model="newNickname"
+            v-model="newProfile.nickname"
             placeholder="昵称 2-30 个字符"
             maxlength="30"
-            @keyup.enter="saveNickname"
+          />
+        </el-form-item>
+        <el-form-item label="QQ">
+          <el-input
+            v-model="newProfile.qq"
+            placeholder="机器人 @ 选手用，仅数字；留空清除"
+            maxlength="20"
+            @keyup.enter="saveProfile"
           />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="nicknameDialogVisible = false">取消</el-button>
-        <el-button type="primary" :loading="savingNickname" @click="saveNickname">确定</el-button>
+        <el-button @click="profileDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="savingProfile" @click="saveProfile">确定</el-button>
       </template>
     </el-dialog>
 
@@ -234,9 +242,9 @@ const competitions = ref<Competition[]>([])
 const dialogVisible = ref(false)
 const teamName = ref('')
 const creating = ref(false)
-const nicknameDialogVisible = ref(false)
-const newNickname = ref('')
-const savingNickname = ref(false)
+const profileDialogVisible = ref(false)
+const newProfile = ref({ nickname: '', qq: '' })
+const savingProfile = ref(false)
 const inviteDialogVisible = ref(false)
 const inviteUsername = ref('')
 const inviting = ref(false)
@@ -348,26 +356,34 @@ async function createTeam() {
   }
 }
 
-function openNicknameDialog() {
-  newNickname.value = auth.user?.nickname || ''
-  nicknameDialogVisible.value = true
+function openProfileDialog() {
+  newProfile.value = {
+    nickname: auth.user?.nickname || '',
+    qq: auth.user?.qq || '',
+  }
+  profileDialogVisible.value = true
 }
 
-async function saveNickname() {
-  const nickname = newNickname.value.trim()
+async function saveProfile() {
+  const nickname = newProfile.value.nickname.trim()
   if (nickname.length < 2 || nickname.length > 30) {
     ElMessage.warning('昵称需为 2-30 个字符')
     return
   }
-  savingNickname.value = true
+  const qq = newProfile.value.qq.trim()
+  if (qq && !/^\d+$/.test(qq)) {
+    ElMessage.warning('QQ 号应为纯数字')
+    return
+  }
+  savingProfile.value = true
   try {
-    await auth.updateNickname(nickname)
-    ElMessage.success('昵称已更新')
-    nicknameDialogVisible.value = false
+    await auth.updateProfile({ nickname, qq })
+    ElMessage.success('资料已更新')
+    profileDialogVisible.value = false
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.detail || '昵称修改失败')
+    ElMessage.error(e?.response?.data?.detail || '资料修改失败')
   } finally {
-    savingNickname.value = false
+    savingProfile.value = false
   }
 }
 

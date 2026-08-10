@@ -44,6 +44,8 @@ class UserCreateRequest(BaseModel):
     email: str
     password: str = Field(min_length=6, max_length=64)
     role: str
+    nickname: str | None = Field(default=None, min_length=2, max_length=30)
+    qq: str | None = Field(default=None, max_length=20)
 
     @field_validator("email")
     @classmethod
@@ -51,6 +53,18 @@ class UserCreateRequest(BaseModel):
         value = value.strip()
         if len(value) > 120 or not EMAIL_RE.match(value):
             raise ValueError("邮箱格式不正确")
+        return value
+
+    @field_validator("qq")
+    @classmethod
+    def _validate_qq(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        if not value.isdigit() or len(value) > 20:
+            raise ValueError("QQ 号应为纯数字")
         return value
 
 
@@ -84,6 +98,8 @@ def create_user(
         username=payload.username,
         email=payload.email,
         password_hash=hash_password(payload.password),
+        nickname=payload.nickname,
+        qq=payload.qq,
         role=payload.role,
         status="active",
     )
@@ -243,6 +259,10 @@ def update_user(
     if payload.password is not None:
         user.password_hash = hash_password(payload.password)
         changed.append("password")
+
+    if payload.qq is not None:
+        user.qq = payload.qq
+        changed.append("qq")
 
     db.commit()
     db.refresh(user)

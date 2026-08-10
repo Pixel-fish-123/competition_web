@@ -40,7 +40,7 @@ _clients: set[WebSocket] = set()
 
 # --- 成绩上传协议 v1（/api/v1/*）------------------------------------------
 # 玩家设备/机台通过 HTTP 上传成绩，由控制器自动完成 歌曲→格子 映射、
-# 普通格占领与 L1 挑战。协议文档见 outputs/成绩上传协议.md。
+# 普通格占领与 L1 挑战。协议文档见 app/docs/成绩上传协议.md。
 _V1_RATE_BURST = 5                 # 每 (team, player) 60s 内最多 5 次
 _V1_RATE_WINDOW = 60.0
 _V1_RATE_MIN_INTERVAL = 3.0        # 两次上传最小间隔 3s
@@ -497,6 +497,11 @@ def _v1_rate_limited(team: str, player_id: str) -> tuple[bool, float]:
     if dq and now - dq[-1] < _V1_RATE_MIN_INTERVAL:
         return True, max(1.0, _V1_RATE_MIN_INTERVAL - (now - dq[-1]))
     dq.append(now)
+    # 键数封顶：只保留仍在滑动窗口内的活跃 (team, player)，避免无限累积。
+    if len(_rl) > _V1_CACHE_MAX:
+        stale = [k for k, d in _rl.items() if not d or now - d[-1] > _V1_RATE_WINDOW]
+        for k in stale:
+            _rl.pop(k, None)
     return False, 0.0
 
 
@@ -513,39 +518,52 @@ _TASK_MBG_RE = re.compile(r"达成\s*miss\s*<=\s*(\d+)\s*,\s*bad\s*<=\s*(\d+)\s*
 
 
 def _task_issue(task_name: str, result: dict) -> str | None:
-    """按任务名校验成绩，返回第一个未满足的条件描述；满足或无法校验返回 None。"""
+    """按任务名校验成绩，返回第一个未满足的条件描述；满足返回 None。
+
+    严格模式下（STRICT_TASK_CHECK=1）缺失关键字段视为不满足并给出明确错误，
+    不再把「无法校验」当成「通过」（否则 MM 任务不传 mm 也会被放行）。
+    """
     if not task_name or "L1" in task_name:
         return None
     if _TASK_MM_RE.search(task_name):
-        if result.get("mm") is False:
-            return "未达成 MM"
+        if result.get("mm") is not True:
+            return "缺少 MM 达成标记（mm=true）" if result.get("mm") is None else "未达成 MM"
         return None
     if _TASK_FC_RE.search(task_name):
-        fc = result.get("full_combo")
-        miss = result.get("miss")
-        if fc is False or (fc is None and miss not in (None, 0)):
-            return "未达成 FULL COMBO"
+        if result.get("full_combo") is not True:
+            return "缺少 FULL COMBO 达成标记（full_combo=true）" if result.get("full_combo") is None else "未达成 FULL COMBO"
         return None
     if _TASK_TP_RE.search(task_name):
         need = float(_TASK_TP_RE.search(task_name).group(1))
         tp = result.get("tp")
-        if tp is not None and tp < need:
+        if tp is None:
+            return "缺少 tp 成绩"
+        if tp < need:
             return f"tp={tp} < {need}"
         return None
     if _TASK_W_RE.search(task_name):
         need = float(_TASK_W_RE.search(task_name).group(1)) * 10000
         score = result.get("score")
-        if score is not None and score < need:
+        if score is None:
+            return "缺少 score 成绩"
+        if score < need:
             return f"score={score:,} < {need:,.0f}"
         return None
     if _TASK_MBG_RE.search(task_name):
         m = _TASK_MBG_RE.search(task_name)
         lim_m, lim_b, lim_g = int(m.group(1)), int(m.group(2)), int(m.group(3))
-        if result.get("miss") is not None and result["miss"] > lim_m:
+        for key, lim, label in (
+            ("miss", lim_m, "miss"),
+            ("bad", lim_b, "bad"),
+            ("good", lim_g, "good"),
+        ):
+            if result.get(key) is None:
+                return f"缺少 {label} 统计"
+        if result["miss"] > lim_m:
             return f"miss={result['miss']} > {lim_m}"
-        if result.get("bad") is not None and result["bad"] > lim_b:
+        if result["bad"] > lim_b:
             return f"bad={result['bad']} > {lim_b}"
-        if result.get("good") is not None and result["good"] > lim_g:
+        if result["good"] > lim_g:
             return f"good={result['good']} > {lim_g}"
         return None
     return None

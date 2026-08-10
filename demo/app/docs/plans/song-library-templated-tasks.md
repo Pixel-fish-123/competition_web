@@ -37,8 +37,8 @@
 - **流水线**：`generate_tasks_from_songs(50首, seed=42)` 断言返回 21 项、`song_name` 均非空、L1（id=0）`task_bonus==10`、无重复歌曲名、id 覆盖 0..20；重复运行同 seed 结果一致（逐格 diff_score/task_name 完全相等）。
 - **模板分布**：对每个模板 A/B/C 各跑 `seed=1..10`，断言 L1（top 区域）的任务得分属于该模板 high 权重区域应得的分配（A→L1 得最高分任务；B→energy 区域承载前 6 高分中的多数；C→mid 区域承载高分），并断言每区域收到的任务数 ≤ 其容量（top≤1、mid≤9、shallow≤5、energy≤6）且总和 21。
 - **API 集成**（Windows PowerShell，用 `curl.exe` 而非 `curl`）：启动 `python app/main/main.py` 后：
-  - `curl.exe -X POST http://127.0.0.1:8000/api/songs -H "Content-Type: application/json" -d @test_songs.json` → 200 `{"ok":true,"count":50}`
-  - 未导入时 `curl.exe -X POST http://127.0.0.1:8000/api/init -H "Content-Type: application/json" -d '{"mode":"random"}'` → 400 含"请先导入歌曲库"
+  - `curl.exe -X POST http://127.0.0.1:8001/api/songs -H "Content-Type: application/json" -d @test_songs.json` → 200 `{"ok":true,"count":50}`
+  - 未导入时 `curl.exe -X POST http://127.0.0.1:8001/api/init -H "Content-Type: application/json" -d '{"mode":"random"}'` → 400 含"请先导入歌曲库"
   - 导入后同上 init → 200 且 `state.board[0].song_name` 非空
 - **失败场景**：非法 JSON 导入 → 400 + 具体错误；歌曲库 20 首导入后 init → 400（"至少 23 首"）；开局中（started 且未 game_over）再导入 → 400。
 - **测试工具**：`python app/tools/gen_test_songs.py --seed 1` → 生成 `test_songs.json`，50 首、歌名唯一、`{song.diff_score for song in parse(...)} == {2,3,4,5,6,8,10,15}`（全 8 档覆盖）；`--count 10` 生成 10 首且可被 parse 接受。
@@ -150,7 +150,7 @@
     - board.js（或处理器所在文件）：`renderBoard` 中 `diffLabel` 改为 `cell.song_name ? cell.song_name + " · " + cell.difficulty_label : (cell.difficulty_label || ("CHAOS " + cell.diff_score))`；导入流程：`#import-songs` 点击 → 显示模态框；确认 → `try { const data = JSON.parse(textarea.value); apiPost("/api/songs", data); } catch(e) { alert("JSON 格式错误: " + e.message); }`；`apiPost` 成功回调 alert 提示歌曲数量并 `refreshState()`，失败回调 alert 后端 `error` 字段且**不关闭弹窗**。
     - 「随机开局」点击处理：调用 `apiPost("/api/init", {mode:"random"})`；若返回 400（后端 error 字段如"请先导入歌曲库"），alert 该错误——在现有处理器中补充 400 分支（若现有处理器无错误处理，在 `init-random` 处理器所在文件添加）。
     - 不新增 CSS 文件；`style.css` 已有 `.modal-box`/`.modal`/`.act` 样式则复用，textarea 用内联样式（如上）。
-  - Acceptance: 浏览器打开 `http://127.0.0.1:8000`，点「导入歌曲库」→ 粘贴 `test_songs.json` 内容 → 确认 → alert 显示成功数量；点「随机开局」→ 棋盘 21 格显示 `歌曲名 · 难度` 格式；不导入时点开局 → alert 显示"请先导入歌曲库"。
+  - Acceptance: 浏览器打开 `http://127.0.0.1:8001`，点「导入歌曲库」→ 粘贴 `test_songs.json` 内容 → 确认 → alert 显示成功数量；点「随机开局」→ 棋盘 21 格显示 `歌曲名 · 难度` 格式；不导入时点开局 → alert 显示"请先导入歌曲库"。
   - QA happy: 导入成功提示 + 棋盘歌曲名渲染。QA failure: 粘贴**语法非法** JSON → 客户端 alert "JSON 格式错误"（弹窗不关闭）；粘贴**语法合法但歌曲字段非法** JSON → 后端 400 中文错误 alert（弹窗不关闭）；无歌曲库开局 → alert 提示先导入。
   - 验证：浏览器手动操作记录 `.omo/evidence/frontend.txt`（如环境可用 Playwright 截图存 `.omo/evidence/frontend.png`）。
 

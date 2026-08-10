@@ -87,6 +87,7 @@ def register(request: Request, payload: RegisterRequest, response: Response, db:
         username=payload.username,
         email=payload.email,
         nickname=payload.nickname,
+        qq=payload.qq,
         password_hash=hash_password(payload.password),
         role="player",
     )
@@ -157,9 +158,12 @@ def update_me(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """普通用户修改自己的资料（当前仅昵称；None=不修改）。"""
+    """普通用户修改自己的资料（昵称 / QQ；None=不修改）。"""
     if payload.nickname is not None:
         user.nickname = payload.nickname
+    if payload.qq is not None:
+        user.qq = payload.qq
+    if payload.nickname is not None or payload.qq is not None:
         db.commit()
         db.refresh(user)
     ip, user_agent = _request_meta(request)
@@ -169,6 +173,6 @@ def update_me(
         "update_profile",
         ip,
         user_agent,
-        {"username": user.username, "nickname": user.nickname},
+        {"username": user.username, "nickname": user.nickname, "qq": user.qq},
     )
     return user

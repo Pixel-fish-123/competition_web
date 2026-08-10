@@ -121,6 +121,36 @@
       </div>
     </section>
     {% endfor %}
+    {% if context.third_place %}
+    <section class="bracket-section">
+      <div class="round-title">{{ context.third_place.title }}</div>
+      <div class="round">
+        {% for m in context.third_place.matches %}
+        <div class="game game--{{ m.status }}">
+          <div class="slot {{ 'slot--winner' if m.a_win else '' }} {{ 'slot--bye' if m.bye else '' }}">
+            <span class="name">{{ m.a_name }}</span>
+            {% if m.bye %}
+              <span class="score">轮空</span>
+            {% elif m.a_score is not none %}
+              <span class="score">{{ m.a_score }}</span>
+            {% endif %}
+          </div>
+          {% if not m.bye %}
+          <div class="slot {{ 'slot--winner' if m.b_win else '' }}">
+            <span class="name">{{ m.b_name }}</span>
+            {% if m.b_score is not none %}
+              <span class="score">{{ m.b_score }}</span>
+            {% endif %}
+          </div>
+          {% endif %}
+          <span class="status status--{{ m.status }}">
+            {{ "已结束" if m.status == "finished" else ("进行中" if m.status == "in_progress" else "待开始") }}
+          </span>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
   </main>
 </body>
 </html>

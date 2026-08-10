@@ -71,7 +71,8 @@ class UserPatchRequest(BaseModel):
 class UserMePatchRequest(BaseModel):
     """普通用户修改自己的资料（昵称 / QQ）。
 
-    ``None`` 表示不修改该字段；空串会被 min_length=1 拒绝（422）。
+    ``None`` 表示不修改该字段；QQ 空串表示清除（昵称空串仍会被 min_length=1
+    拒绝）。
     """
 
     nickname: str | None = Field(default=None, min_length=2, max_length=30)

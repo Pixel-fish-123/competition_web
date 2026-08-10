@@ -1,5 +1,7 @@
 """QQ 字段（个人资料/管理端）与赛程只读接口 + 赛程图页面的测试。"""
 
+from datetime import datetime
+
 from app.db import SessionLocal
 from app.models.competition import Competition
 from app.models.match import Match
@@ -341,3 +343,193 @@ def test_bracket_page_renders_html(client):
     assert "alice" in resp.text
     assert "bob" in resp.text
     assert "待开始" in resp.text
+
+
+def test_bracket_four_player_single_elim_round_titles(admin_client, client):
+    """4 人单败淘汰：末轮单场 + 次末轮单场 → 末轮应为季军赛，决赛标题不偏移。"""
+    admin_token = admin_client.cookies.get("token")
+    comp_id = _create_ok(admin_client, tournament_format="single_elim")
+    assert _transition(admin_client, comp_id, "registration").status_code == 200
+    _seed_players_and_approve(client, admin_token, comp_id, 4)
+    assert _transition(admin_client, comp_id, "ongoing").status_code == 200
+
+    resp = client.get(f"/competitions/{comp_id}/bracket")
+    assert resp.status_code == 200, resp.text
+    text = resp.text
+    assert "决赛" in text
+    assert "季军赛" in text
+    # 4 人签表没有半决赛轮；旧实现会把决赛误标成半决赛。
+    assert "半决赛" not in text
+
+
+def test_schedule_ambiguous_id_prefers_team(client):
+    """参赛者 id 同时命中队伍与个人报名时，按报名行类型解析（优先队伍）。"""
+    with SessionLocal() as db:
+        user_a = User(
+            username="collision_user",
+            email="collision_user@example.com",
+            password_hash="x",
+            qq="400001",
+            role="player",
+            status="active",
+        )
+        admin = User(
+            username="collision_admin",
+            email="collision_admin@example.com",
+            password_hash="x",
+            role="admin",
+            status="active",
+        )
+        captain = User(
+            username="collision_captain",
+            email="collision_captain@example.com",
+            password_hash="x",
+            qq="400002",
+            role="player",
+            status="active",
+        )
+        db.add_all([user_a, admin, captain])
+        db.commit()
+        db.refresh(user_a)
+
+        # 造队伍直到队伍 id 恰好等于 user_a.id（两表各自自增，必然撞上）。
+        team = None
+        n = 0
+        while team is None or team.id != user_a.id:
+            n += 1
+            candidate = Team(name=f"撞号队{n}", captain_id=captain.id)
+            db.add(candidate)
+            db.commit()
+            db.refresh(candidate)
+            if candidate.id == user_a.id:
+                team = candidate
+
+        reg_time = datetime(2026, 1, 1)
+        member_time = datetime(2025, 12, 31)
+        comp = Competition(
+            name="撞号比赛",
+            participant_type="mixed",
+            tournament_format="swiss",
+            status="ongoing",
+            created_by=admin.id,
+        )
+        db.add(comp)
+        db.commit()
+        db.refresh(comp)
+        # 个人报名先插入（旧实现的 .first() 会错误命中它）。
+        db.add(
+            Registration(
+                competition_id=comp.id,
+                participant_type="individual",
+                user_id=user_a.id,
+                status="approved",
+                created_at=reg_time,
+            )
+        )
+        db.add(
+            Registration(
+                competition_id=comp.id,
+                participant_type="team",
+                team_id=team.id,
+                user_id=captain.id,
+                status="approved",
+                created_at=reg_time,
+            )
+        )
+        db.add(TeamMember(team_id=team.id, user_id=captain.id, created_at=member_time))
+        db.add(
+            Match(
+                competition_id=comp.id,
+                round_id=1,
+                engine_match_id=1,
+                participant_a=user_a.id,
+                participant_b=None,
+                status="pending",
+            )
+        )
+        db.commit()
+        collided_id = user_a.id
+        team_name = team.name
+
+    resp = client.get("/api/schedule/current")
+    assert resp.status_code == 200, resp.text
+    m = resp.json()["matches"][0]
+    assert m["participant_a"]["type"] == "team"
+    assert m["participant_a"]["name"] == team_name
+    assert m["participant_a"]["qqs"] == ["400002"]
+    assert collided_id == team.id
+
+
+def test_schedule_team_member_joined_after_registration_excluded(client):
+    """报名时刻后才入队的成员不应出现在名单 QQ 里。"""
+    with SessionLocal() as db:
+        admin = User(
+            username="cutoff_admin",
+            email="cutoff_admin@example.com",
+            password_hash="x",
+            role="admin",
+            status="active",
+        )
+        captain = User(
+            username="cutoff_captain",
+            email="cutoff_captain@example.com",
+            password_hash="x",
+            qq="500001",
+            role="player",
+            status="active",
+        )
+        late = User(
+            username="cutoff_late",
+            email="cutoff_late@example.com",
+            password_hash="x",
+            qq="500002",
+            role="player",
+            status="active",
+        )
+        db.add_all([admin, captain, late])
+        db.commit()
+        team = Team(name="截点队", captain_id=captain.id)
+        db.add(team)
+        db.commit()
+        db.refresh(team)
+        comp = Competition(
+            name="截点比赛",
+            participant_type="mixed",
+            tournament_format="swiss",
+            status="ongoing",
+            created_by=admin.id,
+        )
+        db.add(comp)
+        db.commit()
+        db.refresh(comp)
+        reg_time = datetime(2026, 1, 1)
+        db.add(
+            Registration(
+                competition_id=comp.id,
+                participant_type="team",
+                team_id=team.id,
+                user_id=captain.id,
+                status="approved",
+                created_at=reg_time,
+            )
+        )
+        db.add(TeamMember(team_id=team.id, user_id=captain.id, created_at=datetime(2025, 12, 31)))
+        # 报名之后才入队 → 不应被拉进名单。
+        db.add(TeamMember(team_id=team.id, user_id=late.id, created_at=datetime(2026, 1, 2)))
+        db.add(
+            Match(
+                competition_id=comp.id,
+                round_id=1,
+                engine_match_id=1,
+                participant_a=team.id,
+                participant_b=None,
+                status="pending",
+            )
+        )
+        db.commit()
+
+    resp = client.get("/api/schedule/current")
+    assert resp.status_code == 200, resp.text
+    m = resp.json()["matches"][0]
+    assert m["participant_a"]["type"] == "team"
+    assert m["participant_a"]["qqs"] == ["500001"]

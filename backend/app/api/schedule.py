@@ -115,6 +115,7 @@ def _load_roster(
         if team_reg is not None:
             team = teams.get(pid)
             roster[pid] = ScheduleParticipant(
+                id=team.id if team else pid,
                 type="team",
                 name=team.name if team else None,
                 qqs=[u.qq for u in members.get(pid, []) if u.qq],
@@ -124,12 +125,13 @@ def _load_roster(
         if user_reg is not None:
             user = users.get(pid)
             roster[pid] = ScheduleParticipant(
+                id=user.id if user else pid,
                 type="individual",
                 name=(user.nickname or user.username) if user else None,
                 qqs=[user.qq] if user and user.qq else [],
             )
             continue
-        roster[pid] = ScheduleParticipant(type="unknown", name=None, qqs=[])
+        roster[pid] = ScheduleParticipant(id=pid, type="unknown", name=None, qqs=[])
     return roster
 
 
@@ -151,6 +153,7 @@ def _build_schedule(db: Session, competition: Competition) -> ScheduleOut:
                 round_id=m.round_id,
                 status=m.status,
                 result_type=m.result_type,
+                result=m.result,
                 participant_a=roster.get(m.participant_a),
                 participant_b=roster.get(m.participant_b),
             )

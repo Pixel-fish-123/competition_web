@@ -159,9 +159,12 @@ def test_schedule_endpoints_return_names_and_qqs(admin_client, client):
         m = data["matches"][0]
         assert m["round_id"] == 1
         assert m["participant_a"]["type"] == "individual"
+        assert m["participant_a"]["id"] is not None
         assert m["participant_a"]["qqs"] == ["100000"]
         assert m["participant_a"]["name"] == "player_0"
         assert m["participant_b"]["qqs"] == ["100001"]
+        assert "result" in m
+        assert m["result"] is None
 
 
 def test_schedule_team_participant_returns_member_qqs(client):

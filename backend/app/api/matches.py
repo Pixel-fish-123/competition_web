@@ -296,9 +296,8 @@ def list_matches(
 ):
     """赛程列表（公开只读），按轮次/创建顺序排列。
 
-    与 /api/competitions/{id}/schedule、/competitions/{id}/bracket 一样公开，
-    供比赛详情页在未登录时也能渲染赛程图。仅返回对阵、状态与结果等展示
-    数据，不含玩法日志；单局详情仍要求登录。
+    与 /api/competitions/{id}/schedule 一样公开，供机器人/外部只读拉取。
+    仅返回对阵、状态与结果等展示数据，不含玩法日志；单局详情仍要求登录。
     """
     _get_competition_or_404(db, competition_id)
     matches = (

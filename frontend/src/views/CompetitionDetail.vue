@@ -228,33 +228,6 @@ interface MatchInfo {
   result_locked: boolean
 }
 
-interface ScheduleParticipant {
-  id: number | null
-  type: string
-  name: string | null
-  qqs: string[]
-}
-
-interface ScheduleMatchInfo {
-  id: number
-  round_id: number
-  status: string
-  result_type: string | null
-  result: Record<string, any> | null
-  participant_a: ScheduleParticipant | null
-  participant_b: ScheduleParticipant | null
-}
-
-interface ScheduleOut {
-  competition: {
-    id: number
-    name: string
-    status: string
-    tournament_format: string
-  }
-  matches: ScheduleMatchInfo[]
-}
-
 interface RoundGroup {
   round_id: number
   matches: MatchInfo[]
@@ -419,30 +392,17 @@ async function loadRegistrations() {
   }
 }
 
-// 赛程图数据走公开只读赛程接口（/api/competitions/{id}/schedule），
-// 游客无需登录也能看到赛程；比分/胜者随 result 一并返回。
-async function loadSchedule() {
+async function loadMatches() {
   try {
-    const { data } = await http.get<ScheduleOut>(`/competitions/${cid.value}/schedule`)
-    const matches: MatchInfo[] = data.matches.map((m) => ({
-      id: m.id,
-      round_id: m.round_id,
-      participant_a: m.participant_a?.id ?? null,
-      participant_b: m.participant_b?.id ?? null,
-      participant_a_name: m.participant_a?.name ?? null,
-      participant_b_name: m.participant_b?.name ?? null,
-      status: m.status,
-      result: m.result ?? null,
-      result_locked: false,
-    }))
+    const { data } = await http.get<MatchInfo[]>(`/competitions/${cid.value}/matches`)
     const map = new Map<number, MatchInfo[]>()
-    for (const match of matches) {
-      if (!map.has(match.round_id)) map.set(match.round_id, [])
-      map.get(match.round_id)!.push(match)
+    for (const m of data) {
+      if (!map.has(m.round_id)) map.set(m.round_id, [])
+      map.get(m.round_id)!.push(m)
     }
     rounds.value = Array.from(map.entries())
       .sort((a, b) => a[0] - b[0])
-      .map(([round_id, matchList]) => ({ round_id, matches: matchList }))
+      .map(([round_id, matches]) => ({ round_id, matches }))
   } catch {
     rounds.value = []
   }
@@ -528,7 +488,7 @@ async function onCompleteLatestRound() {
     } else {
       ElMessage.success(`已锁定本轮 ${data.locked} 场结果，第 ${data.next_round_id} 轮已生成`)
     }
-    await loadSchedule()
+    await loadMatches()
     await loadRankings()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '操作失败')
@@ -553,7 +513,7 @@ async function onResetLatestRound() {
       `/competitions/${cid.value}/rounds/latest/reset`,
     )
     ElMessage.success(`已重置第 ${data.round_id} 轮，重新生成 ${data.match_count} 场对局`)
-    await loadSchedule()
+    await loadMatches()
     await loadRankings()
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.detail || '重置失败')
@@ -566,7 +526,7 @@ onMounted(async () => {
   await auth.fetchMe()
   await loadCompetition()
   await loadRegistrations()
-  await loadSchedule()
+  await loadMatches()
   await loadRankings()
   if (auth.isLoggedIn) await loadMyTeam()
 })
@@ -576,7 +536,7 @@ watch(() => route.params.cid, async (newCid) => {
   if (newCid) {
     await loadCompetition()
     await loadRegistrations()
-    await loadSchedule()
+    await loadMatches()
     await loadRankings()
     if (auth.isLoggedIn) await loadMyTeam()
   }

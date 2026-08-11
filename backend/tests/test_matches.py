@@ -602,15 +602,16 @@ def test_reset_round_refused_when_locked(admin_client):
     assert resp.json()["detail"] == "本轮已有锁定结果，无法重置"
 
 
-def test_list_matches_unauthenticated_returns_401(client):
+def test_list_matches_public_without_login(client):
+    """赛程列表公开只读：未登录也能查看（比赛详情页赛程图依赖它）。"""
     with SessionLocal() as db:
         comp = Competition(name="未认证比赛", status="ongoing", created_by=1)
         db.add(comp)
         db.commit()
         comp_id = comp.id
     resp = client.get(f"/api/competitions/{comp_id}/matches")
-    assert resp.status_code == 401
-    assert resp.json()["detail"] == "未登录或登录已失效"
+    assert resp.status_code == 200
+    assert resp.json() == []
 
 
 def test_get_match_detail_unknown_returns_404(admin_client):

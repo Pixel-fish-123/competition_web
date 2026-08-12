@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import os
 import socket
 import sys
@@ -21,7 +22,7 @@ from fastapi.staticfiles import StaticFiles
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from api.routes import router
+from api.routes import router, game as controller_game, broadcast_state
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIR = BASE_DIR / "frontend"
@@ -85,7 +86,25 @@ async def lifespan(_: FastAPI):
             _log(f"[browser] webbrowser.open -> {ok} http://127.0.0.1:{port}")
         except Exception as e:  # pragma: no cover - defensive
             _log(f"[browser] webbrowser.open failed: {e!r}")
+    # 超时判定不再依赖 /api/tick（机器人已改走 WebSocket，不再轮询该接口）：
+    # 后台每 1s 检查一次剩余时间，到点结束比赛并向所有 WS 客户端推送 state_update。
+    watchdog = asyncio.create_task(_timeout_watchdog())
+    _log("[watchdog] 超时检查任务已启动")
     yield
+    watchdog.cancel()
+    _log("[watchdog] 超时检查任务已停止")
+
+
+async def _timeout_watchdog() -> None:
+    while True:
+        await asyncio.sleep(1.0)
+        try:
+            controller_game._sync_elapsed()
+            if controller_game._check_timeout():
+                await broadcast_state()
+                _log("[watchdog] 比赛超时，已结束并推送 state_update")
+        except Exception as e:  # pragma: no cover - defensive
+            _log(f"[watchdog] 超时检查异常：{e!r}")
 
 
 app = FastAPI(title="三角占领 · 赛时控制器", lifespan=lifespan)

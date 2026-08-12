@@ -61,8 +61,9 @@
         </template>
       </el-table-column>
       <el-table-column prop="created_at" label="注册时间" min-width="170" />
-      <el-table-column label="操作" width="200">
+      <el-table-column label="操作" width="250">
         <template #default="{ row }">
+          <el-button size="small" @click="openEdit(row)">编辑</el-button>
           <el-button size="small" @click="openReset(row)">重置密码</el-button>
           <el-button
             size="small"
@@ -101,6 +102,26 @@
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
         <el-button type="primary" :loading="creating" @click="doCreate">确认创建</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="editVisible" title="编辑用户" width="420px">
+      <el-form label-width="90px">
+        <el-form-item label="用户名">
+          <el-input :model-value="editTarget?.username" disabled />
+        </el-form-item>
+        <el-form-item label="QQ">
+          <el-input
+            v-model="editForm.qq"
+            placeholder="仅数字，留空清除"
+            maxlength="20"
+          />
+        </el-form-item>
+      </el-form>
+      <div class="dialog-tip">QQ 用于机器人 @ 选手发送比赛通知，建议填写</div>
+      <template #footer>
+        <el-button @click="editVisible = false">取消</el-button>
+        <el-button type="primary" :loading="editing" @click="doEdit">确认</el-button>
       </template>
     </el-dialog>
 
@@ -147,6 +168,10 @@ const createVisible = ref(false)
 const creating = ref(false)
 const createForm = ref({ username: '', email: '', password: '', role: '', qq: '' })
 const deletingId = ref<number | null>(null)
+const editVisible = ref(false)
+const editTarget = ref<UserRow | null>(null)
+const editForm = ref({ qq: '' })
+const editing = ref(false)
 
 const ROLE_LABELS: Record<string, string> = {
   admin: '管理员',
@@ -211,6 +236,33 @@ function openReset(row: UserRow) {
   resetTarget.value = row
   newPassword.value = ''
   resetVisible.value = true
+}
+
+function openEdit(row: UserRow) {
+  editTarget.value = row
+  editForm.value = { qq: row.qq ?? '' }
+  editVisible.value = true
+}
+
+async function doEdit() {
+  if (!editTarget.value) return
+  const qq = editForm.value.qq.trim()
+  if (qq && !/^\d+$/.test(qq)) {
+    ElMessage.warning('QQ 号应为纯数字')
+    return
+  }
+  editing.value = true
+  try {
+    // 空串 = 清除 QQ（与后端 UserPatchRequest 约定一致）
+    await http.patch(`/admin/users/${editTarget.value.id}`, { qq })
+    ElMessage.success('QQ 已更新')
+    editVisible.value = false
+    loadUsers()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.detail || '更新 QQ 失败')
+  } finally {
+    editing.value = false
+  }
 }
 
 async function doReset() {

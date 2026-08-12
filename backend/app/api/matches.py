@@ -1,7 +1,7 @@
 """对局 API（todo 14）：列表 / 详情 / 开赛 / 记分 / 玩法日志导入。
 
 路由（Metis C7：对局由引擎赛程创建，不提供人工创建端点）：
-- GET  /api/competitions/{competition_id}/matches   任意登录用户：赛程列表
+- GET  /api/competitions/{competition_id}/matches   公开只读：赛程列表
 - GET  /api/matches/{match_id}                       任意登录用户：单局详情
 - POST /api/matches/{match_id}/start                 裁判（须在本场 referee_ids）
 - POST /api/matches/{match_id}/result                裁判（须在本场 referee_ids）
@@ -293,9 +293,12 @@ def _apply_sync_result(match: Match, scores: dict, win: str | None) -> None:
 def list_matches(
     competition_id: int,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
 ):
-    """赛程列表（任意登录用户），按轮次/创建顺序排列。"""
+    """赛程列表（公开只读），按轮次/创建顺序排列。
+
+    与 /api/competitions/{id}/schedule 一样公开，供机器人/外部只读拉取。
+    仅返回对阵、状态与结果等展示数据，不含玩法日志；单局详情仍要求登录。
+    """
     _get_competition_or_404(db, competition_id)
     matches = (
         db.query(Match)

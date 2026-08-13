@@ -59,7 +59,9 @@ foreach ($port in $ports) {
 # 若没有已有实例，则启动服务
 if (-not $finalPort) {
     Write-Host "[启动] 正在后台启动 FastAPI 服务..."
-    $proc = Start-Process -FilePath "python" -ArgumentList "app/main/main.py" -WorkingDirectory $root -WindowStyle Hidden -PassThru
+    # 用 --headless 后台启动：禁止 main.py 自己打开浏览器（避免双开标签页），
+    # 浏览器由本脚本在服务就绪后统一打开一次。
+    $proc = Start-Process -FilePath "python" -ArgumentList "app/main/main.py", "--headless" -WorkingDirectory $root -WindowStyle Hidden -PassThru
 
     # 等待端口就绪（最多 20 秒）
     $ready = $false
@@ -96,7 +98,6 @@ Write-Host "--------------------------------------------------"
 Write-Host "  使用说明："
 Write-Host "  - 服务在后台运行，关闭本窗口不会停止服务"
 Write-Host "  - 停止服务：在本窗口按 [Q] 或任务管理器结束 python"
-Write-Host "  - 玩法测试：双击「运行测试.bat」（pytest，首次自动安装）"
 Write-Host "  - 阵营：防守方（蓝）/ 攻击方（红）；包围：区域被完全围住即整片变防守方（可多次触发）"
 Write-Host "--------------------------------------------------"
 Write-Host ""

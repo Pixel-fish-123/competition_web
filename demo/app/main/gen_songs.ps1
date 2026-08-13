@@ -71,6 +71,5 @@ Write-Host ""
 Write-Host "[完成] 已生成 ${count} 首测试歌曲 -> test_songs.json" -ForegroundColor Green
 Write-Host ""
 Write-Host "下一步：双击「启动服务.bat」，然后在页面点「导入歌曲库」粘贴本文件内容"
-Write-Host "自检：可双击「运行测试.bat」跑一遍 pytest 玩法测试（含新包围/激活/计分/L1/流水线）"
 Write-Host ""
 Read-Host "按回车退出"

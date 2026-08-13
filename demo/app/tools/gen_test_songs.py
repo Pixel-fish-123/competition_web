@@ -49,16 +49,17 @@ def _difficulty_pool() -> dict[str, int]:
     pool = {str(lv): int(w) for lv, w in weights.items() if int(w) > 0}
     return pool or dict(_DEFAULT_POOL)
 
-# The 8 diff-score tiers we must cover, each mapped to a level that yields it.
+# The 10-scale song-score tiers we must cover, each mapped to a (level, type)
+# combo that yields it (level_to_score 10 分制，Chaos/Glitch 在 13/14 档 +1)。
 TIER_LEVELS = {
-    15: "15+",
-    10: "15",
-    8: "14",
-    6: "13",
-    5: "12",
-    4: "11",
-    3: "10",
-    2: "8",
+    10: ("15+", "Glitch"),
+    9: ("15", "Hard"),
+    8: ("14", "Chaos"),
+    7: ("13", "Chaos"),
+    6: ("12", "Hard"),
+    5: ("11", "Hard"),
+    4: ("10", "Hard"),
+    3: ("8", "Hard"),
 }
 
 TYPES = ["Glitch", "Chaos", "Hard"]
@@ -90,20 +91,21 @@ def _make_name(rng: random.Random, used: set[str]) -> str:
 
 
 def generate_songs(count: int, rng: random.Random) -> list[dict]:
-    """Generate `count` songs with unique names and 8-tier coverage."""
+    """Generate `count` songs with unique names and 10-scale tier coverage."""
     songs: list[dict] = []
     used_names: set[str] = set()
 
-    # Stratified guarantee: reserve one song per diff-score tier.
-    for tier in (15, 10, 8, 6, 5, 4, 3, 2):
+    # Stratified guarantee: reserve one song per song-score tier (10 分制 3~10)。
+    for tier in (10, 9, 8, 7, 6, 5, 4, 3):
         if len(songs) >= count:
             break
+        level, stype = TIER_LEVELS[tier]
         name = _make_name(rng, used_names)
         used_names.add(name)
         songs.append({
             "name": name,
-            "type": rng.choice(TYPES),
-            "level": TIER_LEVELS[tier],
+            "type": stype,
+            "level": level,
         })
 
     # Remaining songs: random weighted difficulty (pool from config/rules.json).
@@ -121,9 +123,9 @@ def generate_songs(count: int, rng: random.Random) -> list[dict]:
 
 
 def _tiers_covered(songs: list[dict]) -> bool:
-    """Check that all 8 diff-score tiers are present."""
+    """Check that all 10-scale tiers 3..10 are present."""
     scores = {parse_song_library({"songs": songs})[i].diff_score for i in range(len(songs))}
-    return scores == {2, 3, 4, 5, 6, 8, 10, 15}
+    return scores == {3, 4, 5, 6, 7, 8, 9, 10}
 
 
 def main() -> int:

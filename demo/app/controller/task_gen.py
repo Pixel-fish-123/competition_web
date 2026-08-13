@@ -4,14 +4,14 @@ import random
 from .rules import RULES
 
 DIFFICULTY_TABLE = [
-    {"label": "CHAOS 15+", "diff_score": 15, "tier": 8},
-    {"label": "CHAOS 15", "diff_score": 10, "tier": 7},
-    {"label": "CHAOS 14+", "diff_score": 8, "tier": 6},
-    {"label": "CHAOS 13+", "diff_score": 6, "tier": 5},
-    {"label": "CHAOS 12+", "diff_score": 5, "tier": 4},
-    {"label": "CHAOS 11+", "diff_score": 4, "tier": 3},
-    {"label": "CHAOS 10", "diff_score": 3, "tier": 2},
-    {"label": "CHAOS 8", "diff_score": 2, "tier": 1},
+    {"label": "CHAOS 15+", "diff_score": 10, "tier": 8},
+    {"label": "CHAOS 15", "diff_score": 9, "tier": 7},
+    {"label": "CHAOS 14", "diff_score": 8, "tier": 6},
+    {"label": "CHAOS 13", "diff_score": 7, "tier": 5},
+    {"label": "CHAOS 12", "diff_score": 6, "tier": 4},
+    {"label": "CHAOS 11", "diff_score": 5, "tier": 3},
+    {"label": "CHAOS 10", "diff_score": 4, "tier": 2},
+    {"label": "CHAOS 8", "diff_score": 3, "tier": 1},
 ]
 
 TASK_TABLE = [

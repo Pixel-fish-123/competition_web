@@ -86,7 +86,7 @@ def build_report(results, cfg: BalanceConfig, games: int, seed: int) -> str:
     add("## 1. 占领时间模型")
     add("")
     add(f"- 模型：{model.describe()}")
-    add(f"- 锚点标定：t(2)≈{model.minutes(2):.1f}min、t(25)≈{model.minutes(25):.1f}min"
+    add(f"- 锚点标定：t(6)≈{model.minutes(6):.1f}min、t(20)≈{model.minutes(20):.1f}min"
         f"（可用 `--model-a/--model-b` 或 fit_from_anchors 重新标定）")
     add("")
     add("### 1.1 不同分数对应的大致挑战时间（理论模型）")

@@ -76,9 +76,10 @@ class GameController:
             self._accrue_l1_energy()
 
     def _accrue_l1_energy(self) -> None:
-        """攻击方持有 L1 期间按时间积累能量（每 L1_ENERGY_INTERVAL_MIN 分钟 +1）。
+        """攻击方持有 L1 期间按时间积累能量（连续持有每 L1_ENERGY_INTERVAL_MIN 分钟 +1）。
 
-        满 L1_ENERGY_TARGET 点 -> 攻击方直接胜利。防守方夺回后能量保留、暂停积累。
+        攻击方每次夺回 L1 时立刻 +1 并重置计时基准（倒计时重新开始）；防守方夺回后
+        能量保留、暂停积累；满 L1_ENERGY_TARGET 点 -> 攻击方直接胜利。
         """
         if self.game_over or self.cells[0].owner != "attacker":
             return
@@ -183,6 +184,7 @@ class GameController:
             name = cell.song_name or cell.difficulty_label or f"CHAOS {cell.diff_score}"
             if team == "attacker":
                 # 攻击方占领 L1：立刻 +1 能量（含夺回），并重置持有计时基准
+                # （倒计时从此刻重新开始，连续持有满 2 分钟再 +1）
                 self.l1_energy = min(self.l1_energy + 1, L1_ENERGY_TARGET)
                 self._l1_energy_ts = self.elapsed()
                 self._log(

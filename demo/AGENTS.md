@@ -22,7 +22,7 @@ python app/main/main.py --headless
 - `app/main/main.py` 创建 FastAPI 应用并挂载 `app/frontend/`；`app/api/routes.py` 保存全局 `GameController`，提供 REST/WebSocket 接口。
 - `app/controller/` 是无第三方依赖的游戏核心；`app/config/rules.json` 是任务和难度规则的外部来源。
 - `app/frontend/` 是无框架静态页面；`app/tools/gen_test_songs.py` 在根目录生成 `test_songs.json`。
-- 随机开局必须先 `POST /api/songs` 导入至少 23 首且歌名唯一的歌曲，再 `POST /api/init`。
+- 随机开局必须先 `POST /api/songs` 导入至少 25 首且歌名唯一的歌曲，再 `POST /api/init`。
 
 ## 易错规则
 
@@ -35,7 +35,8 @@ python app/main/main.py --headless
 - **L1 能量机制**：攻击方占领 L1 立刻 +1 能量（含夺回）、持有期间每 2 分钟 +1，满 7 点直接获胜（`win_type="l1_energy"`）；防守方夺回后能量**保留、暂停积累**；旧「激活 L1 秒胜」已移除（L1 激活不再影响胜负）。
 - 攻击方未激活格不计分；L1 占领本身计分（得分豁免激活，与激活无关）。
 - 能源加成由 `config/rules.json` 的 `energy_bonus_by_contact` 表驱动（接触 1/2/3/≥4 → +0/+1/+2/+2 封顶），改配置需同步 `rules.py` 内置默认。
-- 歌曲得分只看等级数值，`type` 前缀（Chaos/Glitch/Hard）无关；歌曲缺 `level` 或 level 非法 → 400（带下标中文错误），不得 500。
+- 歌曲难度分 10 分制（Cytus II 2026 难度表）：数值为主，**Chaos/Glitch 在 13/14 档比 Hard +1**（`song_lib.level_to_score(level, type)`）；歌曲缺 `level` 或 level 非法 → 400（带下标中文错误），不得 500。
+- 任务流水线：25 抽 → 按定数删最难/最简各 1 → 23 抽 20 配任务（权重）→ 固定中腹高分模板（C）贪心填 L2~L6 → **L1 最后从剩余 3 首中选定数最高一首 +10**。
 - 导出日志和截图在开发模式写入 `app/exports/`；打包 exe 时写入 exe 同目录的 `exports/`。
 
 ## 验证

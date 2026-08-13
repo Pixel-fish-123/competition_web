@@ -105,12 +105,12 @@ def test_l1_compare_score_then_tp():
 
 
 def test_l1_scores_without_activation():
-    """L1 得分豁免激活：攻击方占 L1 立即加分；能量未满 7 点不触发 L1 胜利。"""
+    """L1 得分豁免激活：攻击方占 L1 立即加分；能量立刻 +1 并随时间积累。"""
     g = new_game()
     g.occupy(0, "attacker", score=900000)
     assert g.attacker_score == 10.0
     assert g.cells[0].activated is False
-    assert g.l1_energy == 1          # 占领立刻 +1 能量
+    assert g.l1_energy == 1          # 占领立刻 +1
     assert g.game_over is False
 
 
@@ -332,19 +332,20 @@ def test_energy_adjacent_attacker_never_captured():
 
 
 def test_l1_energy_immediate_on_occupy():
+    """攻击方占领 L1 立刻 +1 能量；持有满 2 分钟再 +1；未满 7 点不胜利。"""
     g, clock = clock_game()
     g.occupy(0, "attacker", score=900000)
     assert g.l1_energy == 1          # 占领立刻 +1
-    assert g.game_over is False      # 未满 7 点不胜利
+    assert g.game_over is False
 
 
 def test_l1_energy_accrues_every_two_minutes():
     g, clock = clock_game()
-    g.occupy(0, "attacker", score=900000)
+    g.occupy(0, "attacker", score=900000)   # 立刻 +1 = 1，倒计时从 0 开始
     clock[0] = 60.0                  # +1 分钟
     g._sync_elapsed()
     assert g.l1_energy == 1          # 未满 2 分钟不积累
-    clock[0] = 121.0                 # 累计持有 2 分钟
+    clock[0] = 121.0                 # 连续持有满 2 分钟
     g._sync_elapsed()
     assert g.l1_energy == 2
     clock[0] = 5 * 60.0              # 再推进 3 分钟 -> +1
@@ -354,8 +355,8 @@ def test_l1_energy_accrues_every_two_minutes():
 
 def test_l1_energy_victory_at_seven():
     g, clock = clock_game()
-    g.occupy(0, "attacker", score=900000)   # 能量 1，基准 0
-    clock[0] = 12 * 60 + 1                   # 累计持有 12 分钟 -> +6 -> 7 点
+    g.occupy(0, "attacker", score=900000)   # 立刻 +1 = 1，倒计时从 0 开始
+    clock[0] = 12 * 60 + 1                   # 连续持有 12 分钟 -> +6 -> 7 点
     g._sync_elapsed()
     assert g.l1_energy == 7
     assert g.game_over
@@ -367,22 +368,22 @@ def test_l1_energy_victory_at_seven():
 
 def test_l1_energy_pauses_on_defender_takeover():
     g, clock = clock_game()
-    g.occupy(0, "attacker", score=900000)   # 能量 1
+    g.occupy(0, "attacker", score=900000)   # 立刻 +1 = 1
     clock[0] = 5 * 60.0
-    g._sync_elapsed()                        # 持有 5 分钟 -> 1 + 2 = 3
+    g._sync_elapsed()                        # 连续持有 5 分钟 -> +2 -> 3
     assert g.l1_energy == 3
     g.occupy(0, "defender", score=950000)   # 防守方夺回 -> 暂停
     clock[0] = 15 * 60.0
     g._sync_elapsed()
     assert g.l1_energy == 3                  # 暂停不积累
-    g.occupy(0, "attacker", score=960000)   # 攻击方再夺回 -> 立刻 +1 = 4，基准重置
+    g.occupy(0, "attacker", score=960000)   # 攻击方再夺回 -> 立刻 +1 = 4，倒计时重置
     assert g.l1_energy == 4
     clock[0] = 16 * 60.0
     g._sync_elapsed()
-    assert g.l1_energy == 4                  # 刚夺回 1 分钟不积累
+    assert g.l1_energy == 4                  # 重置后 1 分钟不积累
     clock[0] = 17 * 60.0
     g._sync_elapsed()
-    assert g.l1_energy == 5                  # 再持有 2 分钟 -> +1
+    assert g.l1_energy == 5                  # 重置后连续持有满 2 分钟 -> +1
 
 
 def test_encirclement_disabled_while_attacker_holds_l1():
@@ -438,11 +439,11 @@ def test_update_chain_runs_on_every_occupation():
     assert g.attacker_score == 10.0
     for cid in (10, 6, 3, 1):       # 建立能源通路（不再直接触发胜利）
         g.occupy(cid, "attacker")
-    g.occupy(0, "attacker", score=999999)   # 占 L1：能量 1，不再秒胜
+    g.occupy(0, "attacker", score=999999)   # 占 L1：立刻 +1，倒计时开始
     assert g.l1_energy == 1
     assert g.game_over is False
     clock[0] = 13 * 60.0
-    g._sync_elapsed()                        # 持有 13 分钟 -> 能量满 -> 胜利
+    g._sync_elapsed()                        # 连续持有 13 分钟 -> +6 -> 满 7 胜利
     assert g.game_over and g.win_type == "l1_energy"
 
 

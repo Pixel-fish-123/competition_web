@@ -79,20 +79,21 @@
 - 设置限时：`routes.py:227-233`（`POST /api/time_limit`，须正数）；心跳：`routes.py:236-243`（`GET /api/tick`）。
 
 ### H. 歌曲 / 难度规则
-- 难度分值映射（仅看数值，`type` 前缀无关）：`song_lib.py:25-55`（`level_to_score`）。
-  - `15+`=15、`15`=10、`14`=8、`13`=6、`12`=5、`11`=4、`9/10`=3、`≤8`=2；≥16 归 15。
-- 歌曲库校验：`song_lib.py:58-91`（`parse_song_library`）——`type` ∈ {Glitch, Chaos, Hard}、歌名非空且唯一、level 合法。
-- 开局最少歌曲数：**≥23 首**（`song_lib.py:122-123`）。
+- 歌曲难度分（10 分制，Cytus II 2026 难度表）：`song_lib.py:33-64`（`level_to_score(level, type)`）。
+  - 数值为主：≤3→1、4-6→2、7-8→3、9-10→4、11→5、12→6、13→6、14→7、15→9、15+/16+→10；
+    **Chaos/Glitch 在 13/14 档比 Hard +1**（7/8）。
+- 歌曲库校验：`song_lib.py:77-110`（`parse_song_library`）——`type` ∈ {Glitch, Chaos, Hard}、歌名非空且唯一、level 合法。
+- 开局最少歌曲数：**≥25 首**（`song_lib.py:178-180`）。
 
 ### I. 任务生成 / 分配规则
-- 歌曲库路径（23→21 流水线）：`song_lib.py:118-184`（`generate_tasks_from_songs`）。
-  1. 随机抽 23 首不重复 → 每首按 `weight` 加权分配任务；
-  2. 按 `diff_score + task_bonus` 降序，去掉最高与最低 → 剩 21；
-  3. 按模板 A/B/C 的区域权重（`_REGIONS` + `_WEIGHT_MAP`）贪心分配格位；
-  4. L1（id 0）固定 `task_bonus=10`、任务名「L1源头 (固定+10)」。
-- 无歌曲库回退：`task_gen.py:34-75`（`generate_tasks`）——21 格难度分层、顶层难度唯一化、L1 固定 +10。
-- 区域定义：`song_lib.py:108-115`（`_REGIONS` / `_WEIGHT_MAP` / `_REGION_ORDER`）。
-  - 注意：`energy` 区域指第 6 层（id 15–20），**不是**能源格（id 21–26）。
+- 歌曲库路径（25→23→20+1 流水线）：`song_lib.py:171-270`（`generate_tasks_from_songs`）。
+  1. 随机抽 25 首 → 按定数（`_song_key`，level 数值 + 加号修正）删最难/最简各 1 → 23；
+  2. 23 抽 20 首，按任务表 `weight` 加权随机分配任务，按总分降序；
+  3. **固定「中腹高分」模板（C，mid=high）**，按区域权重贪心填 L2~L6（容量恰 20）；
+  4. L1 最后填充：剩余 3 首中定数最高一首，固定 `task_bonus=10`、`task_name="L1源头 (固定+10)"`。
+- 区域定义（烈度分区）：`song_lib.py:108-125`（`_REGIONS` / `_ALLO_CAP` / `_FIXED_TEMPLATE`）。
+  - `l2={1,2}` 低分、`mid={3..9}` 烈度最高、`shallow={10..14}` 次低、`energy={15..20}` 低分（L6）。
+- 无歌曲库回退：`task_gen.py:38-79`（`generate_tasks`）——10 分制 8 档难度分层、顶层难度唯一化（仅一首 10 分）、L1 固定 +10。
 
 ### J. 规则数据源
 - 外部数据：`config/rules.json`——难度映射（`difficulty_score`）、16 项任务表（`tasks`，含 weight/bonus）、3 模板（`templates`）、**测试歌曲难度权重池（`song_level_weights`，level→权重）**、**能源加成表（`energy_bonus_by_contact`，接触能源数→每格加成，超档封顶）**。

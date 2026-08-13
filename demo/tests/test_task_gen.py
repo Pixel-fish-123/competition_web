@@ -23,10 +23,10 @@ def test_generate_tasks_shape():
 
 
 def test_generate_tasks_single_top_tier():
-    """回退生成保证一局仅一首 15+（tier=8）。"""
+    """回退生成保证一局仅一首顶分（10 分制 tier=8，diff_score=10）。"""
     for seed in range(1, 11):
         cells = generate_tasks(seed)
-        top = [c for c in cells if c["diff_score"] == 15]
+        top = [c for c in cells if c["diff_score"] == 10]
         assert len(top) == 1, seed
 
 

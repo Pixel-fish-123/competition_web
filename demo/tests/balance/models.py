@@ -15,15 +15,15 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-# 常见分值档位（难度分 × 任务加分组合），用于报告展示
-REFERENCE_SCORES = [2, 3, 4, 5, 6, 8, 10, 12, 15, 18, 20, 23, 25]
+# 常见分值档位（歌曲分 × 任务分组合，10 分制总分 2~20），用于报告展示
+REFERENCE_SCORES = [2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20]
 
 
 @dataclass
 class TimeModel:
     kind: str = "power"          # "power" | "exp"
-    a: float = 0.365             # 幂/指数模型的系数
-    b: float = 1.133             # 幂/指数模型的指数
+    a: float = 0.0803            # 幂/指数模型的系数（新总分域 2~20 标定）
+    b: float = 1.674             # 幂/指数模型的指数
     min_minutes: float = 0.5     # 耗时下限（分钟），防止极端低分格耗时趋近 0
 
     def minutes(self, total_score: int | float) -> float:
@@ -67,7 +67,7 @@ class BalanceConfig:
     time_limit_minutes: float = 25.0
     team_size: int = 3                    # 每方同时进行中的挑战数（3 人团队）
     time_model: TimeModel = field(default_factory=TimeModel)
-    l1_challenge_minutes: float = 1.0     # L1 挑战耗时（分钟）
+    l1_challenge_minutes: float = 2.0     # L1 挑战耗时（分钟；=完整打一首歌的成本，对照实验 B 为均衡点）
     l1_score_lo: int = 950000             # L1 挑战分数区间
     l1_score_hi: int = 1000000
     l1_tp_lo: float = 98.0

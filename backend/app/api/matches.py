@@ -7,6 +7,7 @@
 - POST /api/matches/{match_id}/result                裁判（须在本场 referee_ids）
 - POST /api/matches/{match_id}/gameplay-log          裁判：导入 demo 玩法日志
 - GET  /api/matches/{match_id}/gameplay-log          任意登录用户：读取已存日志
+- POST /api/bot/matches/{match_id}/randomize-sides   机器人（X-Bot-Token）随机选边
 
 玩法插件已从对局流程解耦：开赛不再建玩法会话，对局完全由裁判手工管理
 （记分输入红蓝双方得分 + 胜者）。demo 控制器的玩法日志通过
@@ -31,6 +32,7 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.core.audit import log_audit
 from app.core.rbac import get_current_user, require_referee
 from app.db import get_db
@@ -343,6 +345,40 @@ def randomize_sides(
         {"match_id": match_id, "referee": staff.username, "swapped": swapped},
     )
     return _match_out(db, result)
+
+
+@router.post("/api/bot/matches/{match_id}/randomize-sides")
+def bot_randomize_sides(
+    match_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """机器人令牌触发随机选边（供 bot 在 .ts start 开局前自动调用）。
+
+    鉴权：请求头 ``X-Bot-Token`` 必须等于配置的 ``BOT_API_TOKEN``；
+    后端未配置令牌时返回 503（人工裁判选边不受影响）。语义与裁判版
+    ``randomize-sides`` 一致（仅 pending 且双方已定的对局、50% 交换），
+    但跳过 referee_ids 归属校验——令牌持有者即被信任。
+    """
+    token = request.headers.get("x-bot-token", "")
+    if not settings.BOT_API_TOKEN:
+        raise HTTPException(
+            status_code=503,
+            detail="后端未配置 BOT_API_TOKEN，机器人随机选边不可用",
+        )
+    if token != settings.BOT_API_TOKEN:
+        raise HTTPException(status_code=401, detail="机器人令牌无效")
+    result, swapped = match_service.randomize_sides_bot(db, match_id)
+    ip, user_agent = _request_meta(request)
+    log_audit(
+        db,
+        None,
+        "match_randomize_sides_bot",
+        ip,
+        user_agent,
+        {"match_id": match_id, "swapped": swapped},
+    )
+    return {"ok": True, "swapped": swapped, "match": _match_out(db, result)}
 
 
 @router.post("/api/matches/{match_id}/start")

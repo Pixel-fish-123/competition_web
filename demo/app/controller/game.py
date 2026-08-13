@@ -9,6 +9,8 @@ from .rules import RULES
 
 TIME_LIMIT_MINUTES = 25.0
 MAX_PLAYABLE_CELL_ID = 20
+L1_ENERGY_TARGET = 7          # L1 能量满 7 点 -> 攻击方直接胜利
+L1_ENERGY_INTERVAL_MIN = 2.0  # 攻击方持有 L1 期间每 2 分钟 +1 能量
 
 
 @dataclass
@@ -29,6 +31,9 @@ class GameController:
     l1_high_score: int | None = None
     l1_high_tp: float | None = None
     l1_high_team: str | None = None
+    l1_energy: int = 0              # L1 能量点数（攻击方持有累计，达 7 点攻击方胜）
+    _l1_energy_ts: float = 0.0      # 攻击方上次能量基准（elapsed 分钟）
+    _time_fn: Any = field(default=time.time, repr=False)  # 时间源（模拟器可注入）
     game_over: bool = False
     winner: str | None = None
     win_type: str | None = None
@@ -47,6 +52,8 @@ class GameController:
         self.l1_high_score = None
         self.l1_high_tp = None
         self.l1_high_team = None
+        self.l1_energy = 0
+        self._l1_energy_ts = 0.0
         self.game_over = False
         self.winner = None
         self.win_type = None
@@ -61,11 +68,38 @@ class GameController:
     def elapsed(self) -> float:
         if not self.started or self.game_over:
             return self.elapsed_minutes
-        return (time.time() - self._start_ts) / 60.0
+        return (self._time_fn() - self._start_ts) / 60.0
 
     def _sync_elapsed(self) -> None:
         if self.started and not self.game_over:
-            self.elapsed_minutes = (time.time() - self._start_ts) / 60.0
+            self.elapsed_minutes = (self._time_fn() - self._start_ts) / 60.0
+            self._accrue_l1_energy()
+
+    def _accrue_l1_energy(self) -> None:
+        """攻击方持有 L1 期间按时间积累能量（每 L1_ENERGY_INTERVAL_MIN 分钟 +1）。
+
+        满 L1_ENERGY_TARGET 点 -> 攻击方直接胜利。防守方夺回后能量保留、暂停积累。
+        """
+        if self.game_over or self.cells[0].owner != "attacker":
+            return
+        now = self.elapsed()
+        gained = int((now - self._l1_energy_ts) / L1_ENERGY_INTERVAL_MIN)
+        if gained <= 0:
+            return
+        self._l1_energy_ts += gained * L1_ENERGY_INTERVAL_MIN
+        self.l1_energy = min(self.l1_energy + gained, L1_ENERGY_TARGET)
+        if self.l1_energy >= L1_ENERGY_TARGET:
+            self._l1_victory()
+        else:
+            self._log(f"L1能量积累至{self.l1_energy}/{L1_ENERGY_TARGET}", "l1")
+
+    def _l1_victory(self) -> None:
+        """L1 能量满 7 点：攻击方直接获胜（防守方分数保留不变）。"""
+        self._sync_elapsed()
+        self.game_over = True
+        self.winner = "attacker"
+        self.win_type = "l1_energy"
+        self._log("攻击方L1能量满7点，直接获胜", "victory")
 
     def _check_timeout(self) -> bool:
         self._sync_elapsed()
@@ -147,6 +181,17 @@ class GameController:
             self.l1_high_team = team
             cell.owner = team
             name = cell.song_name or cell.difficulty_label or f"CHAOS {cell.diff_score}"
+            if team == "attacker":
+                # 攻击方占领 L1：立刻 +1 能量（含夺回），并重置持有计时基准
+                self.l1_energy = min(self.l1_energy + 1, L1_ENERGY_TARGET)
+                self._l1_energy_ts = self.elapsed()
+                self._log(
+                    f"攻击方占领L1，能量+1（{self.l1_energy}/{L1_ENERGY_TARGET}）",
+                    "l1",
+                )
+                if self.l1_energy >= L1_ENERGY_TARGET:
+                    self._l1_victory()
+                    return True
             self._run_update_chain()
             self._log(
                 f"{self._team_cn(team)} 占领了L1源头 的{name} {cell.task_name} {self._score_tp_str(score, tp)} [占领L1]",
@@ -213,7 +258,7 @@ class GameController:
         self.update_activation()
         self.check_encirclement()
         self.recalc_scores()
-        self.check_top_victory()
+        self.check_l1_energy()
         if not self.game_over:
             self._check_timeout()
 
@@ -249,9 +294,12 @@ class GameController:
         - 封闭判定：区域内每格的每个邻接格，要么属于本区域，要么是防守方占领或
           地图边界；邻接**攻击方激活地块** / 能源格 / 未占领格 → 不成立
           （攻击方未激活地块并入区域，不阻断包围）。
+        - **包围失效**：攻击方持有 L1 期间包围机制整体失效（防守方夺回 L1 后恢复）。
         - 每次占领变化后判定，可多次触发；单次判定内迭代到不动点（转换出的防守方格
           可继续围住相邻区域）。
         """
+        if self.cells[0].owner == "attacker":
+            return  # 攻击方持有 L1 期间包围机制失效
         converted: list[int] = []
         while True:
             # 1) 由当前盘面找出全部「未占领 + 攻击方未激活」连通区域（含 L1，排除能源格与激活地块）
@@ -425,18 +473,12 @@ class GameController:
                 parts.append("[未激活]")
         return "".join(parts)
 
-    def check_top_victory(self) -> None:
-        if self.game_over:
-            return
-        l1 = self.cells[0]
-        if l1.owner == "attacker" and l1.activated:
-            self.game_over = True
-            self.winner = "attacker"
-            self.win_type = "top"
-            self._log(
-                f"攻击方顶端直胜！直接获胜",
-                "victory",
-            )
+    def check_l1_energy(self) -> None:
+        """L1 能量检查（替代旧顶端直胜）：攻击方持有期间按时间积累，满 7 点直接获胜。
+
+        旧「攻击方占领并激活 L1 即秒胜」已移除；L1 激活不再影响胜负（得分豁免不变）。
+        """
+        self._accrue_l1_energy()
 
     def _idx_in_layer(self, cell_id: int) -> int:
         layer = self.cells[cell_id].layer
@@ -483,6 +525,8 @@ class GameController:
             "board": self.get_board(),
             "scores": self.get_scores(),
             "l1": self.get_l1_status(),
+            "l1_energy": self.l1_energy,
+            "l1_energy_target": L1_ENERGY_TARGET,
             "elapsed": round(self.elapsed(), 2),
             "time_limit": self.time_limit_minutes,
             "events": [e.to_dict() for e in self.events[:50]],

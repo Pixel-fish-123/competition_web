@@ -30,12 +30,13 @@ _ENERGY_BASE = range(15, 21)   # L6：邻接能源的接入层
 class MatchResult:
     seed: int
     winner: str | None            # "defender" / "attacker" / "draw"
-    win_type: str | None          # "top" / "timeout" / None
+    win_type: str | None          # "l1_energy" / "timeout" / None
     defender_score: float
     attacker_score: float
     defender_cells: int
     attacker_cells: int
     l1_holder: str | None
+    l1_energy: int = 0            # 终局 L1 能量（攻击方积累）
     encirclement_count: int = 0   # 本局包围成立次数
     l1_challenges: int = 0        # 本局 L1 挑战次数（双方合计）
     template: str = ""            # 本局任务模板 A/B/C
@@ -51,6 +52,7 @@ class MatchResult:
             "defender_cells": self.defender_cells,
             "attacker_cells": self.attacker_cells,
             "l1_holder": self.l1_holder,
+            "l1_energy": self.l1_energy,
             "encirclement_count": self.encirclement_count,
             "l1_challenges": self.l1_challenges,
             "template": self.template,
@@ -108,19 +110,18 @@ def _choose_target(g: GameController, team: str, cfg: BalanceConfig,
                    rng: random.Random, pending: set[int]):
     """返回 (cell_id, kind, score, tp) 或 None（无可选目标）。"""
     if team == "attacker":
-        # 攻击方冲顶：已有激活的 L3 格（路径过半）且 L1 未被己方持有 -> 提前挑战 L1
-        # （占下 L1 后，一旦 L2 通路激活，L1 随更新链激活即触发顶端直胜）
-        has_activated_l3 = any(
-            g.cells[cid].owner == "attacker" and g.cells[cid].activated
-            for cid in (3, 4, 5)
-        )
-        if has_activated_l3 and g.l1_high_team != "attacker":
+        # 攻击方 L1 冲刺：L1 是核心战略资产（能量积累满 7 点胜利 + 压制包围），
+        # 未持有且能量达到阈值时随时挑战（a_l1_energy_go=0 即开局抢 L1）。
+        if (g.l1_high_team != "attacker"
+                and g.l1_energy >= cfg.a_l1_energy_go):
             return (_L1, "l1", rng.randint(cfg.l1_score_lo, cfg.l1_score_hi),
                     round(rng.uniform(cfg.l1_tp_lo, cfg.l1_tp_hi), 2))
         scorer = _attacker_score
     else:
-        # 防守方守 L1：攻击方持有 L1 时优先夺回（防顶端直胜）
-        if g.l1_high_team == "attacker":
+        # 防守方守 L1（核心战略点）：
+        # - 攻击方持有 -> 立即夺回（阻止能量积累与包围失效）
+        # - 无人持有  -> 预防性占领（占住 L1，不给攻击方能量引擎）
+        if cfg.d_l1_defend and g.l1_high_team != "defender":
             return (_L1, "l1", rng.randint(cfg.l1_score_lo, cfg.l1_score_hi),
                     round(rng.uniform(cfg.l1_tp_lo, cfg.l1_tp_hi), 2))
         scorer = _defender_score
@@ -143,6 +144,10 @@ def simulate_match(songs: list[Song], seed: int, cfg: BalanceConfig) -> MatchRes
     cells_data, template = generate_tasks_from_songs(songs, seed=seed, return_template=True)
     g = GameController()
     g.init(cells_data)
+    # 注入模拟时钟（秒）：L1 能量按模拟时间积累，与真实运行一致
+    clock = [0.0]
+    g._time_fn = lambda: clock[0]
+    g._start_ts = 0.0
 
     t = 0.0
     tasks: dict[str, list[_Task]] = {"defender": [], "attacker": []}
@@ -177,6 +182,7 @@ def simulate_match(songs: list[Song], seed: int, cfg: BalanceConfig) -> MatchRes
             t = cfg.time_limit_minutes
             break
         t = next_t
+        clock[0] = t * 60.0   # 推进模拟时钟（L1 能量/超时按模拟时间判定）
 
         # 完成所有到点任务（同一时刻按列表顺序逐个执行）
         for team in ("defender", "attacker"):
@@ -212,6 +218,7 @@ def simulate_match(songs: list[Song], seed: int, cfg: BalanceConfig) -> MatchRes
         defender_cells=count("defender"),
         attacker_cells=count("attacker"),
         l1_holder=g.l1_high_team,
+        l1_energy=g.l1_energy,
         encirclement_count=g.encirclement_count,
         l1_challenges=l1_challenges,
         template=template,

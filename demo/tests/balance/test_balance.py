@@ -57,7 +57,7 @@ def test_simulate_single_match(songs):
     cfg = BalanceConfig()
     r = simulate_match(songs, seed=1, cfg=cfg)
     assert r.winner in ("defender", "attacker", "draw")
-    assert r.win_type in ("top", "timeout")
+    assert r.win_type in ("l1_energy", "timeout")
     assert r.defender_score >= 0 and r.attacker_score >= 0
     assert r.defender_cells + r.attacker_cells <= 21
     assert r.occupation_times
@@ -65,6 +65,7 @@ def test_simulate_single_match(songs):
     assert r.template in ("A", "B", "C")
     assert r.encirclement_count >= 0
     assert r.l1_challenges >= 0
+    assert 0 <= r.l1_energy <= 7
 
 
 def test_encirclement_count_matches_events(songs):
@@ -107,14 +108,13 @@ def test_tournament_different_seeds_vary(songs):
     assert [r.winner for r in a] != [r.winner for r in b]
 
 
-def test_top_victory_reachable_without_defense(songs):
-    """对照实验：防守方放弃封顶/切断时，顶端直胜在模拟内可达（验证规则联动正确）。
+def test_l1_energy_victory_reachable_without_defense(songs):
+    """对照实验：防守方不夺 L1 时，L1 能量胜利在模拟内可达（验证规则联动正确）。
 
-    默认策略下直胜极难触发（0/200 级别）正是当前规则的平衡性结论——
-    防守方的封顶+切断+夺 L1 使冲顶几乎不可能，详见 balance/README.md。
+    默认策略下能量胜利的达成率是平衡性结论（防守方夺 L1 压制），见 balance/README.md。
     """
-    cfg = BalanceConfig(d_seal_top=0, d_cut=0, d_wall=0,
-                        a_top_claim=8, a_extend=6, a_top_pull=2)
+    cfg = BalanceConfig(d_seal_top=0, d_cut=0, d_wall=0, d_l1_defend=False,
+                        a_top_claim=8, a_extend=6, a_top_pull=2, a_l1_energy_go=0)
     results = run_tournament(songs, games=30, seed=1, cfg=cfg)
-    top_wins = sum(1 for r in results if r.win_type == "top")
-    assert top_wins > 0
+    l1_wins = sum(1 for r in results if r.win_type == "l1_energy")
+    assert l1_wins > 0

@@ -78,11 +78,13 @@ class BalanceConfig:
     d_seal_top: float = 3.0               # 防守方：封顶（占 L2 阻止冲顶）
     d_cut: float = 3.0                    # 防守方：切断（占攻击方激活块邻接的空格）
     d_wall: float = 0.5                   # 防守方：邻接己方格越多的格越优先（筑墙）
+    d_l1_defend: bool = True              # 防守方：攻击方持有 L1 时立即夺回（防能量积累）
     a_ratio: float = 0.6                  # 攻击方：性价比（低分快占，铺路径）
     a_energy_base: float = 8.0            # 攻击方：L6 能源接入格
     a_extend: float = 4.0                 # 攻击方：邻接己方激活块的扩展格
     a_top_pull: float = 1.2               # 攻击方：向 L1（浅层）方向牵引
     a_top_claim: float = 5.0              # 攻击方：抢占 L2（冲顶关键格）
+    a_l1_energy_go: int = 0               # 攻击方：L1 能量达到该值后全力夺 L1（0=开局即抢，能量胜利冲刺）
     noise: float = 0.4                    # 策略评分噪声（越大越随机）
 
     def describe(self) -> str:
@@ -90,7 +92,8 @@ class BalanceConfig:
             f"限时 {self.time_limit_minutes}min / 每方并行 {self.team_size} 人 / "
             f"L1 挑战 {self.l1_challenge_minutes}min / 噪声 {self.noise}\n"
             f"  防守方权重: 性价比={self.d_ratio} 封顶={self.d_seal_top} "
-            f"切断={self.d_cut} 筑墙={self.d_wall}\n"
+            f"切断={self.d_cut} 筑墙={self.d_wall} 夺L1={self.d_l1_defend}\n"
             f"  攻击方权重: 性价比={self.a_ratio} 能源接入={self.a_energy_base} "
-            f"扩展={self.a_extend} 冲顶牵引={self.a_top_pull} 抢L2={self.a_top_claim}"
+            f"扩展={self.a_extend} 冲顶牵引={self.a_top_pull} 抢L2={self.a_top_claim} "
+            f"L1冲刺={self.a_l1_energy_go}"
         )

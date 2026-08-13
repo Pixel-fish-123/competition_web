@@ -128,18 +128,18 @@ def build_report(results, cfg: BalanceConfig, games: int, seed: int) -> str:
     add("")
     counts = Counter(r.winner for r in results)
     n = len(results)
-    top_wins = sum(1 for r in results if r.win_type == "top")
+    l1_wins = sum(1 for r in results if r.win_type == "l1_energy")
     add("| 结局 | 局数 | 占比 |")
     add("|---|---|---|")
     for label, key in (("防守方胜（计时）", "defender"), ("攻击方胜（计时）", "attacker"),
                        ("平局", "draw")):
         add(f"| {label} | {counts.get(key, 0)} | {_fmt_rate(counts.get(key, 0), n)} |")
-    add(f"| **攻击方顶端直胜** | {top_wins} | {_fmt_rate(top_wins, n)} |")
+    add(f"| **攻击方 L1 能量胜利** | {l1_wins} | {_fmt_rate(l1_wins, n)} |")
     add("")
 
     add("### 2.1 模板分组胜率（A/B/C，95% 置信区间）")
     add("")
-    add("| 模板 | 局数 | 防守胜 | 攻击胜 | 平局 | 顶端直胜 |")
+    add("| 模板 | 局数 | 防守胜 | 攻击胜 | 平局 | L1 能量胜利 |")
     add("|---|---|---|---|---|---|")
     for tmpl in ("A", "B", "C"):
         group = [r for r in results if r.template == tmpl]
@@ -150,22 +150,23 @@ def build_report(results, cfg: BalanceConfig, games: int, seed: int) -> str:
         d = sum(1 for r in group if r.winner == "defender")
         a = sum(1 for r in group if r.winner == "attacker")
         dr = sum(1 for r in group if r.winner == "draw")
-        tp = sum(1 for r in group if r.win_type == "top")
+        tp = sum(1 for r in group if r.win_type == "l1_energy")
         add(f"| {tmpl} | {m} | {_fmt_rate(d, m)} | {_fmt_rate(a, m)} | "
             f"{dr / m * 100:.1f}% | {tp / m * 100:.1f}% |")
     add("")
 
-    add("### 2.2 包围与 L1 挑战统计")
+    add("### 2.2 包围与 L1 能量统计")
     add("")
     enc_games = sum(1 for r in results if r.encirclement_count > 0)
     enc_total = sum(r.encirclement_count for r in results)
     enc_max = max((r.encirclement_count for r in results), default=0)
     l1_games = sum(1 for r in results if r.l1_challenges > 0)
     l1_total = sum(r.l1_challenges for r in results)
+    l1_energy_avg = statistics.mean(r.l1_energy for r in results)
     add(f"- **包围触发**：{enc_games} 局（{enc_games / n * 100:.1f}%）发生包围，"
         f"合计 {enc_total} 次（平均 {enc_total / n:.2f} 次/局，单局最多 {enc_max} 次）")
     add(f"- **L1 挑战**：{l1_games} 局（{l1_games / n * 100:.1f}%）发生 L1 挑战，"
-        f"合计 {l1_total} 次（平均 {l1_total / n:.2f} 次/局）")
+        f"合计 {l1_total} 次（平均 {l1_total / n:.2f} 次/局）；平均终局 L1 能量 {l1_energy_avg:.2f}/7")
     add("")
     add("### 2.3 比分与占领统计（平均）")
     add("")
@@ -229,12 +230,12 @@ def main() -> int:
 
     counts = Counter(r.winner for r in results)
     n = len(results)
-    top = sum(1 for r in results if r.win_type == "top")
+    l1w = sum(1 for r in results if r.win_type == "l1_energy")
     enc = sum(1 for r in results if r.encirclement_count > 0)
     l1g = sum(1 for r in results if r.l1_challenges > 0)
     print(f"[摘要] 防守胜 {counts.get('defender', 0)} ({_fmt_rate(counts.get('defender', 0), n)}) / "
           f"攻击胜 {counts.get('attacker', 0)} ({_fmt_rate(counts.get('attacker', 0), n)}) / "
-          f"平局 {counts.get('draw', 0)} / 顶端直胜 {top} / "
+          f"平局 {counts.get('draw', 0)} / L1能量胜利 {l1w} / "
           f"包围触发 {enc} 局 / L1 挑战 {l1g} 局")
     return 0
 

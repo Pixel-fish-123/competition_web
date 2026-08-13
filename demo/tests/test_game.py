@@ -31,6 +31,15 @@ def new_game(diff: int = 10) -> GameController:
     return g
 
 
+def clock_game(diff: int = 10):
+    """返回 (g, clock)：注入模拟时钟的 GameController（clock 单位为秒）。"""
+    g = new_game(diff)
+    clock = [0.0]
+    g._time_fn = lambda: clock[0]
+    g._start_ts = 0.0
+    return g, clock
+
+
 def owners(g: GameController) -> dict[int, str | None]:
     return {c.id: c.owner for c in g.cells[:21]}
 
@@ -96,12 +105,13 @@ def test_l1_compare_score_then_tp():
 
 
 def test_l1_scores_without_activation():
-    """L1 得分豁免激活：攻击方占 L1 立即加分，无需连通能源。"""
+    """L1 得分豁免激活：攻击方占 L1 立即加分；能量未满 7 点不触发 L1 胜利。"""
     g = new_game()
     g.occupy(0, "attacker", score=900000)
     assert g.attacker_score == 10.0
     assert g.cells[0].activated is False
-    assert g.game_over is False  # 未激活 -> 不触发顶端直胜
+    assert g.l1_energy == 1          # 占领立刻 +1 能量
+    assert g.game_over is False
 
 
 def test_cancel_l1_resets_records():
@@ -112,6 +122,8 @@ def test_cancel_l1_resets_records():
     assert g.l1_high_tp is None
     assert g.l1_high_team is None
     assert g.cells[0].owner is None
+    # 已积累的 L1 能量保留（暂停积累，不清零）
+    assert g.l1_energy == 1
 
 
 # ---------------------------------------------------------------- 激活
@@ -266,14 +278,14 @@ def test_enclosure_l1_in_region_but_not_converted():
     assert g.l1_high_score is None
 
 
-def test_enclosure_l1_attacker_held_not_converted():
-    """攻击方持有 L1 时，区域被围 -> 其余格转换，L1 仍归攻击方。"""
+def test_enclosure_l1_attacker_held_disables_encirclement():
+    """攻击方持有 L1 时包围机制整体失效（L1 争夺压制防守方核武器）。"""
     g = new_game()
     g.occupy(0, "attacker", score=900000)
     for cid in (2, 3, 4):
         g.occupy(cid, "defender")
-    # 区域 {0,1}：1 转换，L1 豁免
-    assert g.cells[1].owner == "defender"
+    # 包围失效：区域 {0,1} 不被转换
+    assert g.cells[1].owner is None
     assert g.cells[0].owner == "attacker"
     assert g.l1_high_team == "attacker"
 
@@ -316,20 +328,75 @@ def test_energy_adjacent_attacker_never_captured():
     assert g.attacker_score == 22.0
 
 
-# ---------------------------------------------------------------- 胜利
+# ---------------------------------------------------------------- 胜利（L1 能量）
 
 
-def test_top_victory():
-    g = new_game()
-    for cid in (15, 10, 6, 3, 1):    # 建立 能源21-15-10-6-3-1-L1 通路
-        g.occupy(cid, "attacker")
-    assert g.cells[1].activated
-    g.occupy(0, "attacker", score=900000)  # 占领并激活 L1 -> 顶端直胜
+def test_l1_energy_immediate_on_occupy():
+    g, clock = clock_game()
+    g.occupy(0, "attacker", score=900000)
+    assert g.l1_energy == 1          # 占领立刻 +1
+    assert g.game_over is False      # 未满 7 点不胜利
+
+
+def test_l1_energy_accrues_every_two_minutes():
+    g, clock = clock_game()
+    g.occupy(0, "attacker", score=900000)
+    clock[0] = 60.0                  # +1 分钟
+    g._sync_elapsed()
+    assert g.l1_energy == 1          # 未满 2 分钟不积累
+    clock[0] = 121.0                 # 累计持有 2 分钟
+    g._sync_elapsed()
+    assert g.l1_energy == 2
+    clock[0] = 5 * 60.0              # 再推进 3 分钟 -> +1
+    g._sync_elapsed()
+    assert g.l1_energy == 3
+
+
+def test_l1_energy_victory_at_seven():
+    g, clock = clock_game()
+    g.occupy(0, "attacker", score=900000)   # 能量 1，基准 0
+    clock[0] = 12 * 60 + 1                   # 累计持有 12 分钟 -> +6 -> 7 点
+    g._sync_elapsed()
+    assert g.l1_energy == 7
     assert g.game_over
     assert g.winner == "attacker"
-    assert g.win_type == "top"
-    # 防守方分数保留（未吞噬）
+    assert g.win_type == "l1_energy"
+    # 防守方分数保留（不吞噬）
     assert g.defender_score == 0.0
+
+
+def test_l1_energy_pauses_on_defender_takeover():
+    g, clock = clock_game()
+    g.occupy(0, "attacker", score=900000)   # 能量 1
+    clock[0] = 5 * 60.0
+    g._sync_elapsed()                        # 持有 5 分钟 -> 1 + 2 = 3
+    assert g.l1_energy == 3
+    g.occupy(0, "defender", score=950000)   # 防守方夺回 -> 暂停
+    clock[0] = 15 * 60.0
+    g._sync_elapsed()
+    assert g.l1_energy == 3                  # 暂停不积累
+    g.occupy(0, "attacker", score=960000)   # 攻击方再夺回 -> 立刻 +1 = 4，基准重置
+    assert g.l1_energy == 4
+    clock[0] = 16 * 60.0
+    g._sync_elapsed()
+    assert g.l1_energy == 4                  # 刚夺回 1 分钟不积累
+    clock[0] = 17 * 60.0
+    g._sync_elapsed()
+    assert g.l1_energy == 5                  # 再持有 2 分钟 -> +1
+
+
+def test_encirclement_disabled_while_attacker_holds_l1():
+    """攻击方持有 L1 期间包围机制失效；防守方夺回后恢复。"""
+    g = new_game()
+    g.occupy(0, "attacker", score=900000)    # 攻击方持有 L1
+    for cid in (6, 7, 8, 9, 1, 2):           # L4 + L2 全防守方
+        g.occupy(cid, "defender")
+    # 包围失效：L3 不被转换
+    assert g.cells[3].owner is None
+    assert g.cells[5].owner is None
+    # 防守方夺回 L1 -> 包围恢复，L3 被围转换
+    g.occupy(0, "defender", score=950000)
+    assert g.cells[3].owner == "defender"
 
 
 def test_timeout_winner_by_score():
@@ -364,16 +431,19 @@ def test_check_timeout_triggers_end():
 
 
 def test_update_chain_runs_on_every_occupation():
-    """任何占领变化都触发 激活->包围->计分->直胜 链（顺序不可变）。"""
-    g = new_game()
+    """任何占领变化都触发 激活->包围->计分->L1能量 链（顺序不可变）。"""
+    g, clock = clock_game()
     g.occupy(15, "attacker")
     assert g.cells[15].activated
     assert g.attacker_score == 10.0
-    # 攻击方建立通路后占 L1 -> 直胜在包围之后检查
-    for cid in (10, 6, 3, 1):
+    for cid in (10, 6, 3, 1):       # 建立能源通路（不再直接触发胜利）
         g.occupy(cid, "attacker")
-    g.occupy(0, "attacker", score=999999)
-    assert g.game_over and g.win_type == "top"
+    g.occupy(0, "attacker", score=999999)   # 占 L1：能量 1，不再秒胜
+    assert g.l1_energy == 1
+    assert g.game_over is False
+    clock[0] = 13 * 60.0
+    g._sync_elapsed()                        # 持有 13 分钟 -> 能量满 -> 胜利
+    assert g.game_over and g.win_type == "l1_energy"
 
 
 def test_state_dict_has_no_legacy_encirclement_fields():

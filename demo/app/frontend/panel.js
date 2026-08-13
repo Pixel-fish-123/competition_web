@@ -316,6 +316,12 @@ function renderPanel(state) {
   } else {
     l1El.textContent = "未占领";
   }
+  // L1 能量：攻击方持有期间积累（满 7 点攻击方直接获胜）；持有期间包围失效
+  const energyEl = document.getElementById("l1-energy");
+  const target = state.l1_energy_target || 7;
+  const holderIsAtk = l1.holder === "attacker";
+  energyEl.innerHTML = `⚡ 能量 ${state.l1_energy ?? 0}/${target}` +
+    (holderIsAtk ? ` <b style="color:var(--defender-bright)">· 包围失效</b>` : "");
 
   const phaseEl = document.getElementById("game-phase");
   const bannerEl = document.getElementById("winner-banner");
@@ -325,9 +331,9 @@ function renderPanel(state) {
     bannerEl.textContent = "";
     boardArea.classList.remove("victory-flash");
   } else if (state.game_over) {
-    if (state.win_type === "top") {
-      phaseEl.textContent = "顶端直胜";
-      bannerEl.textContent = "谐律崩解 · 攻击方获胜";
+    if (state.win_type === "l1_energy") {
+      phaseEl.textContent = "L1 能量胜利";
+      bannerEl.textContent = "L1充能完成 · 攻击方获胜";
       boardArea.classList.add("victory-flash");
     } else {
       phaseEl.textContent = "计时结束";

@@ -80,13 +80,29 @@ function renderBoard() {
       el.classList.add("owner-attacker");
       if (cell.activated) el.classList.add("activated");
     }
+    if (cell.from_encirclement) el.classList.add("from-encirclement");
 
     const songEl = cell.song_name ? `<div class="cell-song">${cell.song_name}</div>` : "";
     const diffLabel = cell.difficulty_label || ("CHAOS " + cell.diff_score);
     const taskShort = cell.task_name || "-";
     const bonusTag = (cell.owner === "attacker" && cell.activated && cell.energy_bonus > 0)
       ? `<span class="cell-bonus">(+${cell.energy_bonus})</span>` : "";
+    // L1：上半部分 8 个能量格点（居中）+ 攻击方持有时的持续时间条
+    let topHtml = "";
+    if (id === 0) {
+      const e = window._l1Energy || { value: 0, target: 10, holder: null, progress: 0 };
+      const target = e.target || 10;
+      let pips = "";
+      for (let i = 0; i < target; i++) {
+        pips += `<span class="l1-pip${i < (e.value || 0) ? " on" : ""}"></span>`;
+      }
+      const timer = e.holder === "attacker"
+        ? `<div class="l1-timer"><div class="l1-timer-fill" id="l1-timer-fill" style="width:${Math.round((e.progress || 0) * 100)}%"></div></div>`
+        : "";
+      topHtml = `<div class="l1-pips">${pips}</div>${timer}`;
+    }
     el.innerHTML = `
+      ${topHtml}
       <div class="cell-score">${cell.total_score}${bonusTag}</div>
       ${songEl}
       <div class="cell-diff">${diffLabel}</div>

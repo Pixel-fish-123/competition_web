@@ -99,7 +99,13 @@ function shotDrawCell(ctx, cell, x, y) {
   ctx.fillRect(x, y, w, h);
   ctx.strokeStyle = border;
   ctx.lineWidth = 2;
-  ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+  if (cell.from_encirclement) {          // 包围获得的格：虚线
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+    ctx.setLineDash([]);
+  } else {
+    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+  }
 
   if (cell.is_energy) {
     ctx.font = "16px 'Microsoft YaHei', Arial, sans-serif";
@@ -318,10 +324,19 @@ function renderPanel(state) {
   }
   // L1 能量：攻击方持有期间积累（满 target 点攻击方直接获胜）；持有期间包围失效
   const energyEl = document.getElementById("l1-energy");
-  const target = state.l1_energy_target || 7;
+  const target = state.l1_energy_target || 10;
   const holderIsAtk = l1.holder === "attacker";
   energyEl.innerHTML = `⚡ 能量 ${state.l1_energy ?? 0}/${target}` +
     (holderIsAtk ? ` <b style="color:var(--defender-bright)">· 包围失效</b>` : "");
+  // 棋盘 L1 格点/持续时间条数据（每秒由 /api/tick 校准）
+  window._l1Energy = {
+    value: state.l1_energy ?? 0,
+    target: target,
+    holder: l1.holder,
+    progress: state.l1_energy_progress || 0,
+    ts: Date.now(),
+  };
+  if (window.renderBoard) window.renderBoard();
 
   const phaseEl = document.getElementById("game-phase");
   const bannerEl = document.getElementById("winner-banner");
@@ -369,6 +384,18 @@ setInterval(async () => {
     const r = await fetch("/api/tick");
     const j = await r.json();
     renderTimer(j.elapsed, j.time_limit || 25);
+    // L1 能量每秒校准（格点 + 持续时间条，以服务端实时进度为准）
+    if (window._l1Energy && j.game_over !== undefined) {
+      window._l1Energy.value = j.l1_energy ?? window._l1Energy.value;
+      if (window._l1Energy.holder === "attacker") {
+        window._l1Energy.progress = j.l1_energy_progress ?? window._l1Energy.progress;
+      }
+      window._l1Energy.ts = Date.now();
+      const fill = document.getElementById("l1-timer-fill");
+      if (fill) fill.style.width = Math.round((window._l1Energy.progress || 0) * 100) + "%";
+      const pips = document.querySelectorAll(".l1-pip");
+      pips.forEach((p, i) => p.classList.toggle("on", i < (window._l1Energy.value || 0)));
+    }
     if (j.game_over && !window._lastGameOver) {
       window._lastGameOver = true;
       fetch("/api/state").then(r => r.json()).then(s => { window.renderPanel(s); });

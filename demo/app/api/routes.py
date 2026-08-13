@@ -240,7 +240,9 @@ async def api_tick():
         await broadcast_state()
     return {"elapsed": round(game.elapsed(), 2),
             "time_limit": game.time_limit_minutes,
-            "game_over": game.game_over}
+            "game_over": game.game_over,
+            "l1_energy": game.l1_energy,
+            "l1_energy_progress": game._l1_energy_progress()}
 
 
 @router.get("/api/state")

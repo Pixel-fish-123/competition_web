@@ -327,6 +327,43 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
 .cell.owner-attacker:not(.activated) .cell-song { color: #8a5050; }
 .cell.owner-attacker:not(.activated) .cell-task { color: #a35858; }
 
+/* 包围获得的格子：虚线边框（功能与普通占领格相同） */
+.cell.from-encirclement {
+  border-style: dashed;
+}
+
+/* L1 能量：8 格点（上半部分居中）+ 持续时间条 */
+.l1-pips {
+  display: flex;
+  justify-content: center;
+  gap: 3px;
+  margin-bottom: 3px;
+}
+.l1-pip {
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--gold-deep);
+  background: transparent;
+  box-sizing: border-box;
+}
+.l1-pip.on {
+  background: var(--gold);
+  box-shadow: 0 0 4px var(--gold);
+}
+.l1-timer {
+  width: 84%;
+  height: 4px;
+  background: #222;
+  margin: 0 auto 3px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.l1-timer-fill {
+  height: 100%;
+  background: var(--attacker);
+  transition: width 1s linear;
+}
+
 .cell.energy {
   background: #1a1500;
   border-color: var(--gold-deep);

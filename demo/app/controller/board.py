@@ -19,6 +19,7 @@ class Cell:
     song_level: str = ""
     total_score: int = 0
     energy_bonus: int = 0
+    from_encirclement: bool = False   # 由包围机制获得的格子（前端虚线显示，功能与普通格相同）
     neighbors: list[int] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -37,6 +38,7 @@ class Cell:
             "song_level": self.song_level,
             "total_score": self.total_score,
             "energy_bonus": self.energy_bonus,
+            "from_encirclement": self.from_encirclement,
             "neighbors": list(self.neighbors),
         }
 

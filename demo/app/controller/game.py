@@ -9,7 +9,7 @@ from .rules import RULES
 
 TIME_LIMIT_MINUTES = 25.0
 MAX_PLAYABLE_CELL_ID = 20
-L1_ENERGY_TARGET = 8          # L1 能量满 8 点 -> 攻击方直接胜利（平衡校准：7 时攻击方 51.5%）
+L1_ENERGY_TARGET = 10         # L1 能量满 10 点 -> 攻击方直接胜利（开局防守方 0/0 占 L1 后校准：攻击方首次挑战必得手，目标相应提高）
 L1_ENERGY_INTERVAL_MIN = 2.0  # 攻击方持有 L1 期间每 2 分钟 +1 能量
 
 
@@ -51,9 +51,10 @@ class GameController:
         self.cells = build_cells(cells_data)
         self.defender_score = 0.0
         self.attacker_score = 0.0
-        self.l1_high_score = None
-        self.l1_high_tp = None
-        self.l1_high_team = None
+        self.l1_high_score = 0       # 开局：防守方以 0 分 0 tp 占领 L1（防御姿态）
+        self.l1_high_tp = 0.0
+        self.l1_high_team = "defender"
+        self.cells[0].owner = "defender"
         self.l1_energy = 0
         self._l1_energy_ts = 0.0
         self.game_over = False
@@ -65,6 +66,7 @@ class GameController:
         self.started = True
         self._action_counter = 0
         self._start_ts = time.time()
+        self.recalc_scores()   # 开局 L1 由防守方持有（0 分 0 tp），立即计入防守方分数
         self._log("游戏初始化完成", "system")
 
     def elapsed(self) -> float:
@@ -348,6 +350,7 @@ class GameController:
                     if cell.owner == "attacker":
                         cell.activated = False
                     cell.owner = "defender"
+                    cell.from_encirclement = True  # 包围获得的格：前端虚线标记，功能同普通格
                 newly.extend(targets)
             if not newly:
                 break
@@ -489,6 +492,14 @@ class GameController:
         start = layer * (layer - 1) // 2
         return cell_id - start
 
+    def _l1_energy_progress(self) -> float:
+        """攻击方持有 L1 期间距下次 +1 的进度（0~1），供前端持续时间条显示。"""
+        if self.game_over or self.cells[0].owner != "attacker":
+            return 0.0
+        if self.l1_energy >= self.l1_energy_target:
+            return 0.0
+        return min((self.elapsed() - self._l1_energy_ts) / self.l1_energy_interval_min, 1.0)
+
     def _team_cn(self, team: str | None) -> str:
         if team == "defender":
             return "防守方"
@@ -531,6 +542,7 @@ class GameController:
             "l1": self.get_l1_status(),
             "l1_energy": self.l1_energy,
             "l1_energy_target": self.l1_energy_target,
+            "l1_energy_progress": self._l1_energy_progress(),
             "elapsed": round(self.elapsed(), 2),
             "time_limit": self.time_limit_minutes,
             "events": [e.to_dict() for e in self.events[:50]],

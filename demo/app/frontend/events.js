@@ -33,6 +33,7 @@ window.onCellHover = function (id) {
     ownerColor = cell.activated ? "var(--attacker-bright)" : "var(--text-mute)";
   }
 
+  const encNote = cell.from_encirclement ? `<br><span style="color:var(--defender-bright)">包围获得</span>` : "";
   const diffLabel = cell.difficulty_label || ("CHAOS " + cell.diff_score);
   const songLine = cell.song_name ? `<div style="color:var(--text);font-weight:600">${cell.song_name}</div>` : "";
   const bonusLine = (cell.owner === "attacker" && cell.activated && cell.energy_bonus > 0)
@@ -42,7 +43,7 @@ window.onCellHover = function (id) {
     ${songLine}
     ${diffLabel}<br>
     任务: ${cell.task_name || "-"}<br>
-    分: ${cell.diff_score} (+${cell.task_bonus}) = <b style="color:var(--gold)">${cell.total_score}</b>${bonusLine}<br>
+    分: ${cell.diff_score} (+${cell.task_bonus}) = <b style="color:var(--gold)">${cell.total_score}</b>${bonusLine}${encNote}<br>
     <b style="color:${ownerColor}">${ownerCn}</b>
   `;
 };

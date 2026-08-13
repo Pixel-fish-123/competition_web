@@ -115,8 +115,13 @@ _WEIGHT_MAP = {"high": 3, "medium": 2, "low": 1}
 _REGION_ORDER = ["energy", "mid", "shallow", "top"]
 
 
-def generate_tasks_from_songs(songs: list[Song], seed=None) -> list[dict]:
-    """Generate 21 cells_data from a song library via the templated pipeline."""
+def generate_tasks_from_songs(songs: list[Song], seed=None,
+                              return_template: bool = False):
+    """Generate 21 cells_data from a song library via the templated pipeline.
+
+    ``return_template=True`` 时返回 (cells_data, template)，template ∈ {"A","B","C"}，
+    供平衡性模拟按模板分组统计（默认 False 保持原返回结构，向后兼容）。
+    """
     rng = random.Random(seed)
 
     if len(songs) < 23:
@@ -181,4 +186,6 @@ def generate_tasks_from_songs(songs: list[Song], seed=None) -> list[dict]:
 
     # Return ordered by id so id=0 (L1) is at index 0.
     cells_data.sort(key=lambda c: c["id"])
+    if return_template:
+        return cells_data, template
     return cells_data

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import statistics
 import sys
 from collections import Counter
@@ -37,6 +38,23 @@ except ImportError:                    # 直接脚本模式
 from controller.song_lib import parse_song_library  # noqa: E402
 
 SCORE_BUCKETS = [(2, 4), (5, 6), (7, 9), (10, 12), (13, 15), (16, 19), (20, 25)]
+
+
+def _wilson_ci(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
+    """二项比例 Wilson 95% 置信区间（k 成功 / n 样本）。"""
+    if n <= 0:
+        return (0.0, 1.0)
+    p = k / n
+    denom = 1 + z * z / n
+    centre = (p + z * z / (2 * n)) / denom
+    half = z * math.sqrt((p * (1 - p) + z * z / (4 * n)) / n) / denom
+    return (max(0.0, centre - half), min(1.0, centre + half))
+
+
+def _fmt_rate(k: int, n: int) -> str:
+    """如 53.5% (46.4~60.4)。"""
+    lo, hi = _wilson_ci(k, n)
+    return f"{k / n * 100:.1f}% ({lo * 100:.1f}~{hi * 100:.1f})"
 
 
 def load_songs(root: Path) -> list:
@@ -115,10 +133,41 @@ def build_report(results, cfg: BalanceConfig, games: int, seed: int) -> str:
     add("|---|---|---|")
     for label, key in (("防守方胜（计时）", "defender"), ("攻击方胜（计时）", "attacker"),
                        ("平局", "draw")):
-        add(f"| {label} | {counts.get(key, 0)} | {counts.get(key, 0) / n * 100:.1f}% |")
-    add(f"| **攻击方顶端直胜** | {top_wins} | {top_wins / n * 100:.1f}% |")
+        add(f"| {label} | {counts.get(key, 0)} | {_fmt_rate(counts.get(key, 0), n)} |")
+    add(f"| **攻击方顶端直胜** | {top_wins} | {_fmt_rate(top_wins, n)} |")
     add("")
-    add("### 2.1 比分与占领统计（平均）")
+
+    add("### 2.1 模板分组胜率（A/B/C，95% 置信区间）")
+    add("")
+    add("| 模板 | 局数 | 防守胜 | 攻击胜 | 平局 | 顶端直胜 |")
+    add("|---|---|---|---|---|---|")
+    for tmpl in ("A", "B", "C"):
+        group = [r for r in results if r.template == tmpl]
+        m = len(group)
+        if m == 0:
+            add(f"| {tmpl} | 0 | - | - | - | - |")
+            continue
+        d = sum(1 for r in group if r.winner == "defender")
+        a = sum(1 for r in group if r.winner == "attacker")
+        dr = sum(1 for r in group if r.winner == "draw")
+        tp = sum(1 for r in group if r.win_type == "top")
+        add(f"| {tmpl} | {m} | {_fmt_rate(d, m)} | {_fmt_rate(a, m)} | "
+            f"{dr / m * 100:.1f}% | {tp / m * 100:.1f}% |")
+    add("")
+
+    add("### 2.2 包围与 L1 挑战统计")
+    add("")
+    enc_games = sum(1 for r in results if r.encirclement_count > 0)
+    enc_total = sum(r.encirclement_count for r in results)
+    enc_max = max((r.encirclement_count for r in results), default=0)
+    l1_games = sum(1 for r in results if r.l1_challenges > 0)
+    l1_total = sum(r.l1_challenges for r in results)
+    add(f"- **包围触发**：{enc_games} 局（{enc_games / n * 100:.1f}%）发生包围，"
+        f"合计 {enc_total} 次（平均 {enc_total / n:.2f} 次/局，单局最多 {enc_max} 次）")
+    add(f"- **L1 挑战**：{l1_games} 局（{l1_games / n * 100:.1f}%）发生 L1 挑战，"
+        f"合计 {l1_total} 次（平均 {l1_total / n:.2f} 次/局）")
+    add("")
+    add("### 2.3 比分与占领统计（平均）")
     add("")
     def_score = statistics.mean(r.defender_score for r in results)
     atk_score = statistics.mean(r.attacker_score for r in results)
@@ -181,9 +230,12 @@ def main() -> int:
     counts = Counter(r.winner for r in results)
     n = len(results)
     top = sum(1 for r in results if r.win_type == "top")
-    print(f"[摘要] 防守胜 {counts.get('defender', 0)} ({counts.get('defender', 0) / n * 100:.1f}%) / "
-          f"攻击胜 {counts.get('attacker', 0)} ({counts.get('attacker', 0) / n * 100:.1f}%) / "
-          f"平局 {counts.get('draw', 0)} / 顶端直胜 {top} ({top / n * 100:.1f}%)")
+    enc = sum(1 for r in results if r.encirclement_count > 0)
+    l1g = sum(1 for r in results if r.l1_challenges > 0)
+    print(f"[摘要] 防守胜 {counts.get('defender', 0)} ({_fmt_rate(counts.get('defender', 0), n)}) / "
+          f"攻击胜 {counts.get('attacker', 0)} ({_fmt_rate(counts.get('attacker', 0), n)}) / "
+          f"平局 {counts.get('draw', 0)} / 顶端直胜 {top} / "
+          f"包围触发 {enc} 局 / L1 挑战 {l1g} 局")
     return 0
 
 

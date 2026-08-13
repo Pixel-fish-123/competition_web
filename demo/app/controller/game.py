@@ -35,6 +35,7 @@ class GameController:
     elapsed_minutes: float = 0.0
     events: list[GameEvent] = field(default_factory=list)
     started: bool = False
+    encirclement_count: int = 0   # 本局包围成立次数（平衡性统计用）
     _action_counter: int = 0
     _start_ts: float = 0.0
     time_limit_minutes: float = TIME_LIMIT_MINUTES
@@ -51,6 +52,7 @@ class GameController:
         self.win_type = None
         self.elapsed_minutes = 0.0
         self.events = []
+        self.encirclement_count = 0
         self.started = True
         self._action_counter = 0
         self._start_ts = time.time()
@@ -302,6 +304,7 @@ class GameController:
                 break
 
         if converted:
+            self.encirclement_count += 1
             self._log(
                 f"包围成立！{len(converted)}格变为防守方地块",
                 "encircle",

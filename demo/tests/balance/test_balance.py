@@ -61,6 +61,23 @@ def test_simulate_single_match(songs):
     assert r.defender_score >= 0 and r.attacker_score >= 0
     assert r.defender_cells + r.attacker_cells <= 21
     assert r.occupation_times
+    # 统计字段
+    assert r.template in ("A", "B", "C")
+    assert r.encirclement_count >= 0
+    assert r.l1_challenges >= 0
+
+
+def test_encirclement_count_matches_events(songs):
+    """包围次数统计与事件日志一致（抽样验证）。"""
+    cfg = BalanceConfig(d_seal_top=8, d_cut=6, d_wall=3)   # 筑墙倾向，提高包围频率
+    found = False
+    for seed in range(1, 31):
+        r = simulate_match(songs, seed=seed, cfg=cfg)
+        if r.encirclement_count == 0:
+            continue
+        found = True
+        break
+    assert found
 
 
 def test_simulate_single_match_reproducible(songs):

@@ -36,6 +36,9 @@ class MatchResult:
     defender_cells: int
     attacker_cells: int
     l1_holder: str | None
+    encirclement_count: int = 0   # 本局包围成立次数
+    l1_challenges: int = 0        # 本局 L1 挑战次数（双方合计）
+    template: str = ""            # 本局任务模板 A/B/C
     occupation_times: list = field(default_factory=list)  # [(total_score, minutes)]
 
     def to_dict(self) -> dict:
@@ -48,6 +51,9 @@ class MatchResult:
             "defender_cells": self.defender_cells,
             "attacker_cells": self.attacker_cells,
             "l1_holder": self.l1_holder,
+            "encirclement_count": self.encirclement_count,
+            "l1_challenges": self.l1_challenges,
+            "template": self.template,
         }
 
 
@@ -132,15 +138,16 @@ def _choose_target(g: GameController, team: str, cfg: BalanceConfig,
 
 
 def simulate_match(songs: list[Song], seed: int, cfg: BalanceConfig) -> MatchResult:
-    """模拟一局对战，返回结算结果与占领耗时样本。"""
+    """模拟一局对战，返回结算结果与统计样本（含包围次数 / L1 挑战次数 / 模板）。"""
     rng = random.Random(seed)
-    cells_data = generate_tasks_from_songs(songs, seed=seed)
+    cells_data, template = generate_tasks_from_songs(songs, seed=seed, return_template=True)
     g = GameController()
     g.init(cells_data)
 
     t = 0.0
     tasks: dict[str, list[_Task]] = {"defender": [], "attacker": []}
     occupation_times: list = []
+    l1_challenges = 0
 
     def schedule(team: str, now: float) -> None:
         active = sum(1 for tk in tasks[team] if not tk.done)
@@ -178,6 +185,7 @@ def simulate_match(songs: list[Song], seed: int, cfg: BalanceConfig) -> MatchRes
                     continue
                 tk.done = True
                 if tk.kind == "l1":
+                    l1_challenges += 1
                     g.occupy(_L1, tk.team, score=tk.score, tp=tk.tp)
                     occupation_times.append((0, t - tk.start))
                 else:
@@ -204,6 +212,9 @@ def simulate_match(songs: list[Song], seed: int, cfg: BalanceConfig) -> MatchRes
         defender_cells=count("defender"),
         attacker_cells=count("attacker"),
         l1_holder=g.l1_high_team,
+        encirclement_count=g.encirclement_count,
+        l1_challenges=l1_challenges,
+        template=template,
         occupation_times=occupation_times,
     )
 

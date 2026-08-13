@@ -163,6 +163,19 @@ def test_energy_bonus_single_block_contacts_one_energy():
     assert g.attacker_score == 10.0  # 接触 1 个能源 -> +0
 
 
+def test_energy_bonus_reads_from_config():
+    """能源加成表由 config/rules.json 的 energy_bonus_by_contact 驱动。"""
+    from controller.rules import RULES
+    table = RULES["energy_bonus_by_contact"]
+    g = new_game()
+    assert g._energy_bonus_for(0) == 0
+    assert g._energy_bonus_for(1) == int(table["1"])   # 0
+    assert g._energy_bonus_for(2) == int(table["2"])   # 1
+    assert g._energy_bonus_for(3) == int(table["3"])   # 2
+    assert g._energy_bonus_for(4) == int(table["4"])   # 2
+    assert g._energy_bonus_for(9) == int(table["4"])   # 超档封顶
+
+
 # ---------------------------------------------------------------- 新包围系统
 
 
@@ -209,12 +222,29 @@ def test_enclosure_blocked_by_unoccupied_neighbor():
     assert g.cells[3].owner is None
 
 
-def test_enclosure_blocked_by_attacker_neighbor():
+def test_enclosure_unactivated_attacker_merged_not_blocking():
+    """攻击方未激活地块不阻断包围：并入区域，包围成立时一并被吃掉。"""
     g = new_game()
-    g.occupy(7, "attacker")            # 区域 {3} 的边界邻接格是攻击方 -> 阻断
-    for cid in (1, 2, 4, 6):
+    g.occupy(4, "attacker")            # 未激活（无能源路径）
+    for cid in (1, 6, 7, 2, 5, 8):
         g.occupy(cid, "defender")
+    # 区域 {3,4}：3 未占领 + 4 攻击方未激活，边界 1/2/5/6/7/8 全防守方 -> 成立
+    assert g.cells[3].owner == "defender"
+    assert g.cells[4].owner == "defender"   # 未激活地块被吃掉
+
+
+def test_enclosure_blocked_by_activated_attacker():
+    """攻击方激活地块在边界上 -> 包围无法成立（用户强调的核心边界）。"""
+    g = new_game()
+    g.occupy(7, "attacker")
+    g.occupy(11, "attacker")
+    g.occupy(16, "attacker")           # 7-11-16-22 能源路径 -> 7 激活
+    assert g.cells[7].activated
+    for cid in (1, 4, 6):
+        g.occupy(cid, "defender")
+    # 区域 {3}：边界 1/4/6 防守方 + 7 攻击方激活 -> 阻断
     assert g.cells[3].owner is None
+    assert g.cells[7].owner == "attacker"
 
 
 def test_enclosure_blocked_by_energy():

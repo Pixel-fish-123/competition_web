@@ -90,22 +90,23 @@ push_state_update()      # WebSocket 推送
 
 ### 3.3 包围判定（新包围系统）
 
-**判定本质**：防守方用己方占领格（或地图边界）把一片「非防守方地块」完全围住，该区域即整体变为防守方地块（攻击方占领格被一并「吃掉」）。
+**判定本质**：防守方用己方占领格（或地图边界）把一片「未占领 + 攻击方未激活」的连通区域完全围住，该区域即整体变为防守方地块（攻击方未激活地块被一并「吃掉」）。
 
-- **连通区域** = 通过邻接边相连的「未占领 + 攻击方占领」格；**能源格（21–26）不参与**；
+- **连通区域** = 通过邻接边相连的「未占领 + 攻击方**未激活**」格；**能源格（21–26）不参与**；
+  **攻击方激活地块不属于区域**（若与区域相邻则阻断包围）；
   **L1（id=0）可属于区域**，但包围成立时 L1 本身不被转换。
-- **封闭判定**：区域内每格的每个邻接格，要么属于本区域，要么是**防守方占领**；
-  邻接槽位缺失（=地图边界）视为封闭边。
-  邻接格为攻击方 / 未占领 / 能源格 → 包围不成立。
-- **触发效果**：整片区域变为防守方地块（owner→"defender"、activated=False），
-  分数由更新链 `recalc_scores` 即时重算。
-- **触发时机**：每次占领 / 清除 / L1 挑战成功后随更新链判定，**可多次触发**；
-  单次判定内迭代到不动点（转换出的防守方格可继续围住相邻区域）。
+- **封闭判定**（边界条件）：区域内每格的每个邻接格，要么属于本区域，要么是**防守方占领**或**地图边界**（邻接槽位缺失）。
+  - 邻接**攻击方激活地块** → **包围不成立**（激活地块阻断）；
+  - 邻接**能源格** → 包围不成立；
+  - 攻击方未激活地块不阻断包围（并入区域，成立时一并转换为防守方）。
+- **触发效果**：整片区域变为防守方地块（owner→"defender"、activated=False），分数由更新链 `recalc_scores` 即时重算。
+- **触发时机**：每次占领 / 清除 / L1 挑战成功后随更新链判定，**可多次触发**；单次判定内迭代到不动点（转换出的防守方格可继续围住相邻区域）。
 - 事件日志：`包围成立！N格变为防守方地块`（type="encircle"）。
 
-### 3.4 能源加成上限（修正）
+### 3.4 能源加成上限（config 表驱动）
 
-每格能源加成 = `min(energy_count - 1, 2)`，**上限 +2/格**：
+每格能源加成由 `config/rules.json` 的 `energy_bonus_by_contact` 表决定（键=连通块接触能源数，
+超过最大键取最大键值 = 封顶；表缺失回退 `min(contacts-1, 2)`）：
 
 | 连通块接触能源数 | 1 | 2 | 3 | ≥4 |
 |----------------|---|---|---|---|
@@ -228,11 +229,14 @@ function update_activation():
 
 ```
 function check_encirclement():
-    # 1) 找出全部非防守方连通区域（未占领 + 攻击方占领，含 L1；排除能源格）
+    # 1) 找出全部「未占领 + 攻击方未激活」连通区域（含 L1；排除能源格与攻击方激活地块）
     regions = []
     for start in 0..20:
-        if start 已归类 or cells[start].owner == "defender": continue
-        region = BFS(start)   # 仅经过 owner != "defender" 的非能源格
+        if start 已归类: continue
+        c = cells[start]
+        if c.owner == "defender" or c.is_energy: continue
+        if c.owner == "attacker" and c.activated: continue   # 激活地块不属于区域
+        region = BFS(start)   # 仅经过 未占领/攻击方未激活 的非能源格
         regions.append(region)
 
     # 2) 转换所有被完全围住的区域（迭代到不动点）
@@ -252,8 +256,10 @@ function enclosed(region):
     for i in region:
         for nid in neighbors(i):
             if nid in region: continue
-            if cells[nid].owner != "defender": return FAIL   # 未占领/攻击方/能源
-            # 邻接槽位缺失（地图边界）→ 视为封闭边，继续
+            if cells[nid].owner == "defender": continue      # 防守方 = 墙
+            # 攻击方激活地块 / 能源格 / 未占领格 → 阻断（未激活攻击方格已并入区域，
+            # 不会出现在边界上）；邻接槽位缺失（地图边界）→ 视为封闭边，继续
+            return FAIL
     return SUCCESS
 ```
 
@@ -276,14 +282,14 @@ function recalc_scores():
             continue
         if not cell.activated: continue   # 未激活不计分
 
-    # 攻击方能源加成（仅已激活格，L1 不参与）
+    # 攻击方能源加成（仅已激活格，L1 不参与；加成查 config 的 energy_bonus_by_contact 表）
     visited = set()
     for cell in 非能源格:
         if cell.owner=="attacker" and cell.activated and cell.id not in visited:
             block = BFS_attacker_block(cell.id)   # 仅含已激活攻击方格
             visited |= block
             energy_count = count_energy_contacts(block)
-            bonus = min(energy_count - 1, 2) if energy_count >= 1 else 0
+            bonus = energy_bonus_by_contact(energy_count)   # {"1":0,"2":1,"3":2,"4":2}，超档封顶
             for bid in block:
                 cells[bid].energy_bonus = bonus
                 atk_score += cells[bid].total_score + bonus
@@ -649,7 +655,8 @@ python -c "import json; from controller.song_lib import parse_song_library; d=js
 
 ### 能源加成（攻击方专属）
 
-每个**已激活**格子额外获得能源加成：
+每个**已激活**格子额外获得能源加成，映射表由 `config/rules.json` 的 `energy_bonus_by_contact` 驱动
+（键=连通块接触能源数，超过最大键取最大键值 = 封顶；缺表回退 `min(接触数-1, 2)`）：
 
 | 连通块接触能源数 | 1 | 2 | 3 | ≥4 |
 |----------------|---|---|---|---|
@@ -674,10 +681,13 @@ python -c "import json; from controller.song_lib import parse_song_library; d=js
 
 ## 十八、包围机制（防守方专属，新系统）
 
-**判定**：防守方用己方占领格（或地图边界）把一片「非防守方地块」完全围住，该区域即整体变为防守方地块。
+**判定**：防守方用己方占领格（或地图边界）把一片「未占领 + 攻击方未激活」的连通区域完全围住，该区域即整体变为防守方地块。
 
-- **连通区域** = 通过邻接边相连的「未占领 + 攻击方占领」格；能源格（21–26）不参与；**L1 可属于区域但本身不被转换**。
-- **封闭判定**：区域内每格的每个邻接格，要么属于本区域，要么是**防守方占领**；邻接槽位缺失（=地图边界）视为封闭边。邻接攻击方 / 未占领 / 能源格 → 不成立。
+- **连通区域** = 通过邻接边相连的「未占领 + 攻击方未激活」格；能源格（21–26）不参与；
+  **攻击方激活地块不属于区域**（与区域相邻则阻断包围）；**L1 可属于区域但本身不被转换**。
+- **封闭判定**：区域内每格的每个邻接格，要么属于本区域，要么是**防守方占领**或**地图边界**（邻接槽位缺失）。
+  邻接**攻击方激活地块** → **不成立**（激活地块阻断）；邻接能源格 → 不成立；
+  攻击方未激活地块不阻断（并入区域，成立时一并转换为防守方）。
 - **触发效果**：整片区域变为防守方地块（owner→"defender"、activated=False），分数由更新链即时重算。
 - **触发时机**：每次占领 / 清除 / L1 挑战成功后随更新链判定，**可多次触发**；单次判定内迭代到不动点。
 - L1 豁免：可属于区域，但包围成立时本身不被转换，双方可继续用 score/tp 反复争夺。

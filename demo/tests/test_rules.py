@@ -20,6 +20,8 @@ def test_default_rules_shape():
         "15+", "16", "16+", "15", "14+", "14", "13+", "13",
         "12+", "12", "11+", "11", "10", "10+", "9+", "9", "8",
     }
+    # 能源加成表：接触 1/2/3/≥4 个能源 -> +0/+1/+2/+2（封顶）
+    assert d["energy_bonus_by_contact"] == {"1": 0, "2": 1, "3": 2, "4": 2}
 
 
 def test_load_rules_matches_file(monkeypatch, tmp_path):

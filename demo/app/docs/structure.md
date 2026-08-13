@@ -52,19 +52,19 @@
 - 未激活的攻击方格**不计分**（见 E）。
 
 ### D. 包围规则（新包围系统）
-- 实现：`game.py:240-301`（`check_encirclement`）、`game.py:303-315`（`_region_enclosed`）。
-- **连通区域** = 相邻的「未占领 + 攻击方占领」格；排除能源格（21–26）；**L1（id 0）可属于区域**，但转换时豁免（不变成防守方地块）。
-- **封闭判定**：区域内每格的每个邻接格，要么属于本区域，要么是防守方占领；邻接槽位缺失（=地图边界）视为封闭边。邻接攻击方 / 未占领 / 能源格 → 不成立。
+- 实现：`game.py:241-308`（`check_encirclement`）、`game.py:310-328`（`_region_enclosed`）。
+- **连通区域** = 相邻的「未占领 + 攻击方未激活」格；排除能源格（21–26）；**攻击方激活地块不属于区域**（与区域相邻则阻断包围）；**L1（id 0）可属于区域**，但转换时豁免（不变成防守方地块）。
+- **封闭判定**：区域内每格的每个邻接格，要么属于本区域，要么是防守方占领；邻接槽位缺失（=地图边界）视为封闭边。**邻接攻击方激活地块 / 能源格 → 不成立**；攻击方未激活地块不阻断（并入区域）。
 - **触发效果**：整片区域变为防守方地块（owner→"defender"、activated=False），分数由更新链即时重算。
 - **触发时机**：每次占领变化后随更新链判定，**可多次触发**；单次判定内迭代到不动点（纯 L1 区域无可转换格时跳过）。
 - 旧系统（L1 BFS / 每局一次 / 永久标记 / 退化）已删除：`encircled_cells`、`encirclement_active`、`encirclement_used` 状态与 `[包围]` 标注、前端虚线边框/蓝点均移除。
 
 ### E. 计分规则
-- 实现：`game.py:317-350`（`recalc_scores`）。
+- 实现：`game.py:331-364`（`recalc_scores`）。
 - 防守方：占领即得分（`cell.total_score`），无需激活。
 - 攻击方：L1（id 0）占领即得分；其余格须激活，且按连通块计 `total_score + 能源加成`。
-- 能源加成 = `min(energy_count - 1, 2)`，**每格上限 +2**（`game.py:344`）。
-- 连通块 / 能源接触计算：`game.py:352-367`（`_bfs_attacker_block`）、`game.py:369-375`（`_count_energy_contacts`）。
+- 能源加成：查 `config/rules.json` 的 `energy_bonus_by_contact` 表（接触 1/2/3/≥4 → +0/+1/+2/+2 封顶；缺表回退 `min(contacts-1, 2)`）——`game.py:366-383`（`_energy_bonus_for`）。
+- 连通块 / 能源接触计算：`game.py:385-400`（`_bfs_attacker_block`）、`game.py:402-408`（`_count_energy_contacts`）。
 
 ### F. 胜利规则
 - 顶端直胜：`game.py:392-401`（`check_top_victory`）——攻击方占领 **且** 激活 L1 即胜，防守方分数保留。
@@ -93,10 +93,11 @@
   - 注意：`energy` 区域指第 6 层（id 15–20），**不是**能源格（id 21–26）。
 
 ### J. 规则数据源
-- 外部数据：`config/rules.json`——难度映射（`difficulty_score`）、16 项任务表（`tasks`，含 weight/bonus）、3 模板（`templates`）、**测试歌曲难度权重池（`song_level_weights`，level→权重）**。
-- 加载与回退：`rules.py:48-75`（`load_rules`，缺失/损坏时用内置 `_DEFAULT_RULES`；文件键覆盖默认、缺失键由默认补齐）。
+- 外部数据：`config/rules.json`——难度映射（`difficulty_score`）、16 项任务表（`tasks`，含 weight/bonus）、3 模板（`templates`）、**测试歌曲难度权重池（`song_level_weights`，level→权重）**、**能源加成表（`energy_bonus_by_contact`，接触能源数→每格加成，超档封顶）**。
+- 加载与回退：`rules.py:48-80`（`load_rules`，缺失/损坏时用内置 `_DEFAULT_RULES`；文件键覆盖默认、缺失键由默认补齐）。
 - 注意：`rules.py` 内置默认与 `rules.json` 内容需保持一致（两处都有完整副本，`tests/test_rules.py` 有同步断言）。
 - `song_level_weights` 消费方：`tools/gen_test_songs.py`（`_difficulty_pool`，配置缺失回退内置）。
+- `energy_bonus_by_contact` 消费方：`game.py` 的 `_energy_bonus_for`（缺表回退 `min(contacts-1, 2)`）。
 
 ### K. 成绩上传协议规则（v1）
 - 鉴权/签名/限流/去重/幂等：`routes.py:335-505`。

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .board import Cell, build_cells
+from .rules import RULES
 
 TIME_LIMIT_MINUTES = 25.0
 MAX_PLAYABLE_CELL_ID = 20
@@ -240,24 +241,28 @@ class GameController:
     def check_encirclement(self) -> None:
         """新包围系统：非防守方连通区域被「防守方格 / 地图边界」完全围住时，整片变为防守方地块。
 
-        - 连通区域 = 相邻的「未占领 + 攻击方占领」格；排除能源格（21–26）。
+        - 连通区域 = 相邻的「未占领 + 攻击方未激活」格；排除能源格（21–26）与
+          **攻击方激活地块**（激活地块不参与区域，若与区域相邻则阻断包围）。
           **L1（id 0）可属于连通区域**，但包围转换时 L1 本身不被占领（豁免）。
-        - 封闭判定：区域内每格的每个邻接格，要么属于本区域，要么是防守方占领；
-          邻接槽位缺失（=地图边界）视为封闭边；邻接攻击方 / 未占领 / 能源格 → 不成立。
+        - 封闭判定：区域内每格的每个邻接格，要么属于本区域，要么是防守方占领或
+          地图边界；邻接**攻击方激活地块** / 能源格 / 未占领格 → 不成立
+          （攻击方未激活地块并入区域，不阻断包围）。
         - 每次占领变化后判定，可多次触发；单次判定内迭代到不动点（转换出的防守方格
           可继续围住相邻区域）。
         """
         converted: list[int] = []
         while True:
-            # 1) 由当前盘面找出全部非防守方连通区域（含 L1，排除能源格）
+            # 1) 由当前盘面找出全部「未占领 + 攻击方未激活」连通区域（含 L1，排除能源格与激活地块）
             region_of: dict[int, int] = {}
             regions: list[set[int]] = []
             for start in range(0, 22):  # 0..20 任务格（含 L1）；21–26 能源格不参与
                 if start in region_of:
                     continue
                 start_cell = self.cells[start]
-                if start_cell.is_energy or start_cell.owner == "defender":
-                    continue
+                if (start_cell.is_energy
+                        or start_cell.owner == "defender"
+                        or (start_cell.owner == "attacker" and start_cell.activated)):
+                    continue  # 能源格 / 防守方 / 攻击方激活地块不属于区域
                 region: set[int] = set()
                 queue = deque([start])
                 region.add(start)
@@ -265,8 +270,10 @@ class GameController:
                 while queue:
                     cur = self.cells[queue.popleft()]
                     for nid in cur.neighbors:
+                        nb = self.cells[nid]
                         if (nid in region_of or nid >= 21
-                                or self.cells[nid].owner == "defender"):
+                                or nb.owner == "defender"
+                                or (nb.owner == "attacker" and nb.activated)):
                             continue
                         region.add(nid)
                         region_of[nid] = len(regions)
@@ -301,17 +308,24 @@ class GameController:
             )
 
     def _region_enclosed(self, region: set[int]) -> bool:
-        """区域被完全围住 ⟺ 区域内每格的每个邻接格都在区域内或是防守方占领。
+        """区域被完全围住 ⟺ 区域内每格的每个邻接格「可封闭」。
 
-        邻接槽位缺失（`neighbors` 中不存在）= 地图边界 = 封闭边，无需检查。
-        邻接格为攻击方 / 未占领 / 能源格 → 非防守方，判定失败。
+        封闭条件（边界判定）：
+        - 邻接槽位缺失（`neighbors` 中不存在）= 地图边界 = 封闭边；
+        - 邻接格为**防守方占领** → 可封闭（墙）；
+        - 邻接格为**攻击方激活地块** → **不成立**（激活地块阻断包围）；
+        - 邻接格为**能源格** → 不成立；
+        - 其他（未占领 / 攻击方未激活）理论上不会出现在边界上——它们会并入区域，
+          防御性处理：一律视为不成立。
         """
         for i in region:
             for nid in self.cells[i].neighbors:
                 if nid in region:
                     continue
-                if self.cells[nid].owner != "defender":
-                    return False
+                nb = self.cells[nid]
+                if nb.owner == "defender":
+                    continue
+                return False  # 攻击方激活地块 / 能源格 / 未占领格 → 阻断
         return True
 
     def recalc_scores(self) -> None:
@@ -341,13 +355,32 @@ class GameController:
                 block = self._bfs_attacker_block(cell.id)
                 visited |= block
                 energy_count = self._count_energy_contacts(block)
-                bonus = min(energy_count - 1, 2) if energy_count >= 1 else 0
+                bonus = self._energy_bonus_for(energy_count)
                 for bid in block:
                     self.cells[bid].energy_bonus = bonus
                     atk_score += self.cells[bid].total_score + bonus
 
         self.defender_score = float(def_score)
         self.attacker_score = float(atk_score)
+
+    def _energy_bonus_for(self, contacts: int) -> int:
+        """按连通块接触能源数查表取能源加成（config/rules.json 的 energy_bonus_by_contact）。
+
+        表格式：{"1": 0, "2": 1, "3": 2, "4": 2}，键为接触能源数；超过最大键时取
+        最大键对应值（封顶）。表缺失/损坏时回退原公式 min(contacts-1, 2)。
+        """
+        if contacts <= 0:
+            return 0
+        table = RULES.get("energy_bonus_by_contact") or {}
+        key = str(contacts)
+        if key not in table and table:
+            key = str(max(int(k) for k in table))  # 超过最大档 -> 封顶档
+        if key in table:
+            try:
+                return int(table[key])
+            except (TypeError, ValueError):
+                pass
+        return min(contacts - 1, 2)
 
     def _bfs_attacker_block(self, start: int) -> set[int]:
         block: set[int] = set()

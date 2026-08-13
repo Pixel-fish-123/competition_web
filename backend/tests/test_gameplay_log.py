@@ -7,10 +7,12 @@
 - 表单字段 score_a/score_b/winner 显式覆盖解析值。
 - ?sync=true → 预填 match.result（不结束对局、不触碰引擎）。
 - 重复导入覆盖旧日志（幂等）；坏文件/空文件 400 且错误清晰。
+- **新旧名称兼容**：demo 已改名「守护者→防守方、掠夺者→攻击方」，
+  解析器同时接受新旧两种格式（含「防/攻」与「守/掠」比分缩写）。
 
-样例事件全部采用 demo 控制器（D:\\myproject1\\demo）真实导出格式：
-- 正常结束（超时）：type="system"，文本「游戏结束 - 守护者获胜 (守85 : 掠72)」。
-- 顶端直胜：type="victory"，文本「进攻方顶端直胜！直接获胜」（进攻方胜，无比分）。
+样例事件采用 demo 控制器（D:\\myproject1\\demo）真实导出格式：
+- 正常结束（超时）：type="system"，文本「游戏结束 - 防守方获胜 (防85 : 攻72)」。
+- 顶端直胜：type="victory"，文本「攻击方顶端直胜！直接获胜」（攻击方胜，无比分）。
 """
 
 import json
@@ -31,19 +33,25 @@ BASE_PAYLOAD = {
     "max_participants": 6,
 }
 
-# demo 导出的 JSON 事件数组（结束事件 type="system"，文本含胜者与守/掠比分）。
+# demo 导出的 JSON 事件数组（结束事件 type="system"，文本含胜者与防/攻比分）。
 SAMPLE_EVENTS = [
-    {"time": "00:32", "text": "守护者占领了L2第1个格子 的SongName 任务名 (8) [守卫]", "type": "occupy"},
-    {"time": "01:15", "text": "掠夺者占领了L1源头 (固定+10) 的SongName L1源头 (15) [占领L1]", "type": "l1"},
-    {"time": "24:55", "text": "游戏结束 - 守护者获胜 (守85 : 掠72)", "type": "system"},
+    {"time": "00:32", "text": "防守方占领了L2第1个格子 的SongName 任务名 (8) [防守]", "type": "occupy"},
+    {"time": "01:15", "text": "攻击方占领了L1源头 (固定+10) 的SongName L1源头 (15) [占领L1]", "type": "l1"},
+    {"time": "24:55", "text": "游戏结束 - 防守方获胜 (防85 : 攻72)", "type": "system"},
 ]
 
 # demo 导出的 CSV（BOM + time,type,text 表头）。
 SAMPLE_CSV = (
     "\ufefftime,type,text\n"
-    "00:32,occupy,守护者占领了L2第1个格子 的SongName 任务名 (8) [守卫]\n"
-    "24:55,system,游戏结束 - 掠夺者获胜 (守72 : 掠85)\n"
+    "00:32,occupy,防守方占领了L2第1个格子 的SongName 任务名 (8) [防守]\n"
+    "24:55,system,游戏结束 - 攻击方获胜 (防72 : 攻85)\n"
 )
+
+# 改名前的旧格式（守护者/掠夺者、守/掠缩写）——解析器必须仍能导入。
+LEGACY_EVENTS = [
+    {"time": "00:32", "text": "守护者占领了L2第1个格子 的SongName 任务名 (8) [守卫]", "type": "occupy"},
+    {"time": "24:55", "text": "游戏结束 - 守护者获胜 (守85 : 掠72)", "type": "system"},
+]
 
 
 def _register(client, username, email):
@@ -143,7 +151,7 @@ def test_import_json_log_populates_gameplay_log(admin_client):
     assert len(log["events"]) == 3
     assert log["events"][0]["type"] == "occupy"
     assert log["events"][2]["type"] == "system"
-    # 从「游戏结束」事件解析比分与胜者（守护者=defender=participant_a）。
+    # 从「游戏结束」事件解析比分与胜者（防守方=defender=participant_b）。
     assert log["scores"] == {"defender": 85.0, "attacker": 72.0}
     assert log["winner"] == "defender"
     assert "imported_at" in log
@@ -173,10 +181,27 @@ def test_import_csv_log_with_bom(admin_client):
     assert resp.status_code == 200, resp.text
     log = resp.json()["gameplay_log"]
     assert len(log["events"]) == 2
-    assert log["events"][0] == {"time": "00:32", "type": "occupy", "text": "守护者占领了L2第1个格子 的SongName 任务名 (8) [守卫]"}
-    # 掠夺者获胜 -> attacker；比分 72:85 -> defender=72, attacker=85。
+    assert log["events"][0] == {"time": "00:32", "type": "occupy", "text": "防守方占领了L2第1个格子 的SongName 任务名 (8) [防守]"}
+    # 攻击方获胜 -> attacker；比分 72:85 -> defender=72, attacker=85。
     assert log["scores"] == {"defender": 72.0, "attacker": 85.0}
     assert log["winner"] == "attacker"
+
+
+def test_import_legacy_naming_still_supported(admin_client):
+    """兼容性：改名前的旧格式日志（守护者/掠夺者、守/掠缩写）仍可正常导入。"""
+    match_id, referee_token = _seed(admin_client)
+    _start(admin_client, match_id, referee_token)
+
+    resp = _upload(
+        admin_client,
+        match_id,
+        content=json.dumps(LEGACY_EVENTS).encode("utf-8"),
+    )
+    assert resp.status_code == 200, resp.text
+    log = resp.json()["gameplay_log"]
+    assert len(log["events"]) == 2
+    assert log["scores"] == {"defender": 85.0, "attacker": 72.0}
+    assert log["winner"] == "defender"
 
 
 # ------------------------------------------------------- form-field override
@@ -230,8 +255,8 @@ def test_import_sync_true_prefills_match_result(admin_client):
     with SessionLocal() as db:
         match = db.get(Match, match_id)
         assert match.gameplay_log is not None
-        # 守护者=defender=participant_b（蓝方），掠夺者=attacker=participant_a（红方）。
-        # score_a 属 participant_a（掠夺者=72），score_b 属 participant_b（守护者=85）。
+        # 防守方=defender=participant_b（蓝方），攻击方=attacker=participant_a（红方）。
+        # score_a 属 participant_a（攻击方=72），score_b 属 participant_b（防守方=85）。
         assert match.result["score_a"] == 72.0
         assert match.result["score_b"] == 85.0
         assert match.result["winner"] == match.participant_b  # defender -> participant_b
@@ -247,7 +272,7 @@ def test_import_sync_draw_maps_winner_none(admin_client):
 
     events = [
         {"time": "00:05", "text": "开局", "type": "system"},
-        {"time": "24:55", "text": "游戏结束 - 平局 (守50 : 掠50)", "type": "system"},
+        {"time": "24:55", "text": "游戏结束 - 平局 (防50 : 攻50)", "type": "system"},
     ]
     resp = _upload(admin_client, match_id, content=json.dumps(events).encode("utf-8"), params={"sync": "true"})
     assert resp.status_code == 200, resp.text
@@ -263,14 +288,14 @@ def test_import_sync_draw_maps_winner_none(admin_client):
 
 
 def test_import_top_victory_attacker_wins(admin_client):
-    """顶端直胜：victory 事件文本无比分与胜者关键字 —— 进攻方（掠夺者/
-    attacker=participant_a）获胜，比分留空。"""
+    """顶端直胜：victory 事件文本无比分与胜者关键字 —— 攻击方（attacker=
+    participant_a）获胜，比分留空。"""
     match_id, referee_token = _seed(admin_client)
     _start(admin_client, match_id, referee_token)
 
     events = [
-        {"time": "00:32", "text": "掠夺者占领了L1源头 (固定+10) 的SongName L1源头 (15) [占领L1]", "type": "l1"},
-        {"time": "18:20", "text": "进攻方顶端直胜！直接获胜", "type": "victory"},
+        {"time": "00:32", "text": "攻击方占领了L1源头 (固定+10) 的SongName L1源头 (15) [占领L1]", "type": "l1"},
+        {"time": "18:20", "text": "攻击方顶端直胜！直接获胜", "type": "victory"},
     ]
     resp = _upload(admin_client, match_id, content=json.dumps(events).encode("utf-8"), params={"sync": "true"})
     assert resp.status_code == 200, resp.text
@@ -300,7 +325,7 @@ def test_reimport_overwrites_previous_log(admin_client):
 
     other = [
         {"time": "00:10", "text": "A", "type": "occupy"},
-        {"time": "24:55", "text": "游戏结束 - 掠夺者获胜 (守30 : 掠99)", "type": "system"},
+        {"time": "24:55", "text": "游戏结束 - 攻击方获胜 (防30 : 攻99)", "type": "system"},
     ]
     second = _upload(admin_client, match_id, content=json.dumps(other).encode("utf-8"))
     assert second.status_code == 200
@@ -346,12 +371,10 @@ def test_import_no_file_422(admin_client):
 
 
 def _state_payload(score_a, score_b, winner, win_type, game_over=True, events=None):
-    """按 demo /api/state 导出结构构造权威状态（attacker=掠夺者=score_a）。"""
+    """按 demo /api/state 导出结构构造权威状态（attacker=攻击方=score_a）。"""
     return {
         "board": [],
         "scores": {"defender": score_b, "attacker": score_a},
-        "encircled": [],
-        "encirclement_active": False,
         "l1": {"holder": None, "high_score": None, "high_tp": None},
         "elapsed": 25.0,
         "time_limit": 25.0,
@@ -386,7 +409,7 @@ def test_import_state_timeout_saves_and_finishes(admin_client):
     with SessionLocal() as db:
         match = db.get(Match, match_id)
         assert match.status == "finished"
-        # attacker=掠夺者=participant_a -> score_a=72；defender=守护者=participant_b -> score_b=85。
+        # attacker=攻击方=participant_a -> score_a=72；defender=防守方=participant_b -> score_b=85。
         assert match.result["score_a"] == 72.0
         assert match.result["score_b"] == 85.0
         assert match.result["winner"] == match.participant_b
@@ -396,7 +419,7 @@ def test_import_state_timeout_saves_and_finishes(admin_client):
 
 
 def test_import_state_top_victory_keeps_defender_score(admin_client):
-    """顶端直胜（plan.md）：掠夺者获胜，防守方分数保留原值。"""
+    """顶端直胜（plan.md）：攻击方获胜，防守方分数保留原值。"""
     match_id, referee_token = _seed(admin_client)
     _start(admin_client, match_id, referee_token)
 

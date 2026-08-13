@@ -45,10 +45,13 @@ from app.services import match_service
 router = APIRouter()
 
 # demo 导出日志的胜负事件文本 -> 阵营映射。
-# 约定（用户确认）：守护者=defender=蓝方=participant_b；掠夺者=attacker=红方
+# 约定（用户确认）：防守方=defender=蓝方=participant_b；攻击方=attacker=红方
 # =participant_a。比赛页面统一标注「掠夺者 / 守护者」。
+# demo 已改名「守护者→防守方、掠夺者→攻击方」；保留旧名称键以兼容历史日志。
 _VICTORY_WINNER_MAP = {
+    "防守方获胜": "defender",
     "守护者获胜": "defender",
+    "攻击方获胜": "attacker",
     "掠夺者获胜": "attacker",
     "平局": "draw",
 }
@@ -201,12 +204,13 @@ def _extract_scores_and_winner(
 
     demo 控制器（D:\\myproject1\\demo，见 demo/docs/AGENTS.md）导出格式：
     - 正常结束（超时）：``type="system"``，文本形如
-      ``游戏结束 - 守护者获胜 (守85 : 掠72)`` / ``游戏结束 - 掠夺者获胜 …``
-      / ``游戏结束 - 平局 (守80 : 掠80)`` —— 胜者关键字 + 「守x : 掠y」比分。
-      阵营约定（用户确认）：守护者=defender=蓝方=participant_b，
-      掠夺者=attacker=红方=participant_a。
-    - 顶端直胜：``type="victory"``，文本 ``进攻方顶端直胜！直接获胜`` ——
-      进攻方（掠夺者/attacker）获胜，事件文本不含比分。
+      ``游戏结束 - 防守方获胜 (防85 : 攻72)`` / ``游戏结束 - 攻击方获胜 …``
+      / ``游戏结束 - 平局 (防80 : 攻80)`` —— 胜者关键字 + 「防x : 攻y」比分。
+      兼容改名前的旧格式（守护者/掠夺者、守x : 掠y）。
+      阵营约定（用户确认）：防守方=defender=蓝方=participant_b，
+      攻击方=attacker=红方=participant_a。
+    - 顶端直胜：``type="victory"``，文本 ``攻击方顶端直胜！直接获胜`` ——
+      攻击方（attacker）获胜，事件文本不含比分。
 
     返回 ({"defender": float|None, "attacker": float|None}, winner)，
     winner 为 "defender" | "attacker" | "draw" | None。
@@ -224,11 +228,11 @@ def _extract_scores_and_winner(
     if end_event is not None:
         text = end_event["text"]
         if win is None:
-            m = re.search(r"(守护者获胜|掠夺者获胜|平局)", text)
+            m = re.search(r"(防守方获胜|守护者获胜|攻击方获胜|掠夺者获胜|平局)", text)
             if m:
                 win = _VICTORY_WINNER_MAP[m.group(1)]
         if scores["defender"] is None or scores["attacker"] is None:
-            m = re.search(r"守\s*(\d+(?:\.\d+)?)\s*[:：]\s*掠\s*(\d+(?:\.\d+)?)", text)
+            m = re.search(r"(?:防|守)\s*(\d+(?:\.\d+)?)\s*[:：]\s*(?:攻|掠)\s*(\d+(?:\.\d+)?)", text)
             if m is None:
                 m = re.search(r"(\d+(?:\.\d+)?)\s*[:：]\s*(\d+(?:\.\d+)?)", text)
             if m:

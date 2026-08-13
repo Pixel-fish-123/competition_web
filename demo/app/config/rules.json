@@ -31,5 +31,12 @@
     "A": {"top": "high", "mid": "medium", "shallow": "low", "energy": "medium"},
     "B": {"top": "medium", "mid": "low", "shallow": "medium", "energy": "high"},
     "C": {"top": "medium", "mid": "high", "shallow": "medium", "energy": "low"}
+  },
+  "song_level_weights": {
+    "15+": 1, "16": 1, "16+": 1,
+    "15": 2, "14+": 2, "14": 2,
+    "13+": 3, "13": 3, "12+": 3, "12": 3,
+    "11+": 2, "11": 2, "10": 2, "10+": 2,
+    "9+": 2, "9": 2, "8": 2
   }
 }

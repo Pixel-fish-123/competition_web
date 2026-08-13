@@ -42,17 +42,31 @@ _DEFAULT_RULES: dict = {
         "B": {"top": "medium", "mid": "low", "shallow": "medium", "energy": "high"},
         "C": {"top": "medium", "mid": "high", "shallow": "medium", "energy": "low"},
     },
+    # 测试歌曲生成器的难度权重池（level -> 出现权重），移入配置便于后续调整。
+    "song_level_weights": {
+        "15+": 1, "16": 1, "16+": 1,
+        "15": 2, "14+": 2, "14": 2,
+        "13+": 3, "13": 3, "12+": 3, "12": 3,
+        "11+": 2, "11": 2, "10": 2, "10+": 2,
+        "9+": 2, "9": 2, "8": 2,
+    },
 }
 
 
 def load_rules() -> dict:
-    """Load rules from config/rules.json; fall back to built-in defaults on any failure."""
+    """Load rules from config/rules.json; fall back to built-in defaults on any failure.
+
+    文件中的键覆盖默认值，未提供的键（如 song_level_weights）由内置默认补齐，
+    保证调用方总能取到完整规则集。
+    """
     try:
         with open(_RULES_PATH, encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, dict) or "tasks" not in data or "templates" not in data:
             raise ValueError("missing required keys: tasks, templates")
-        return data
+        merged = dict(_DEFAULT_RULES)
+        merged.update({k: v for k, v in data.items() if v is not None})
+        return merged
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         logger.warning("Failed to load rules from %s (%s); using built-in defaults", _RULES_PATH, exc)
         return dict(_DEFAULT_RULES)

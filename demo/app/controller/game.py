@@ -25,8 +25,6 @@ class GameController:
     cells: list[Cell] = field(default_factory=list)
     defender_score: float = 0.0
     attacker_score: float = 0.0
-    encircled_cells: set[int] = field(default_factory=set)
-    encirclement_active: bool = False
     l1_high_score: int | None = None
     l1_high_tp: float | None = None
     l1_high_team: str | None = None
@@ -39,15 +37,11 @@ class GameController:
     _action_counter: int = 0
     _start_ts: float = 0.0
     time_limit_minutes: float = TIME_LIMIT_MINUTES
-    encirclement_used: bool = False
 
     def init(self, cells_data: list[dict] | None = None) -> None:
         self.cells = build_cells(cells_data)
         self.defender_score = 0.0
         self.attacker_score = 0.0
-        self.encircled_cells = set()
-        self.encirclement_active = False
-        self.encirclement_used = False
         self.l1_high_score = None
         self.l1_high_tp = None
         self.l1_high_team = None
@@ -207,7 +201,7 @@ class GameController:
             self.winner = "draw"
         self._log(
             f"游戏结束 - {self._team_cn(self.winner) if self.winner != 'draw' else '平局'} "
-            f"(守{int(self.defender_score)} : 掠{int(self.attacker_score)})",
+            f"(防{int(self.defender_score)} : 攻{int(self.attacker_score)})",
             "system",
         )
         return True
@@ -244,57 +238,81 @@ class GameController:
                                 queue.append(nn)
 
     def check_encirclement(self) -> None:
-        # 包围每局只触发一次：触发后永久标记被围地块，且非守护者占领的地块退化
-        # 为未占领。L1 完全豁免（不进入包围集合、不受退化影响）。
-        if self.encirclement_used:
-            return
+        """新包围系统：非防守方连通区域被「防守方格 / 地图边界」完全围住时，整片变为防守方地块。
 
-        visited: set[int] = {0}
-        queue = deque([0])
-        failed = False
-        while queue:
-            cur = self.cells[queue.popleft()]
-            for nid in cur.neighbors:
-                if nid in visited:
+        - 连通区域 = 相邻的「未占领 + 攻击方占领」格；排除能源格（21–26）。
+          **L1（id 0）可属于连通区域**，但包围转换时 L1 本身不被占领（豁免）。
+        - 封闭判定：区域内每格的每个邻接格，要么属于本区域，要么是防守方占领；
+          邻接槽位缺失（=地图边界）视为封闭边；邻接攻击方 / 未占领 / 能源格 → 不成立。
+        - 每次占领变化后判定，可多次触发；单次判定内迭代到不动点（转换出的防守方格
+          可继续围住相邻区域）。
+        """
+        converted: list[int] = []
+        while True:
+            # 1) 由当前盘面找出全部非防守方连通区域（含 L1，排除能源格）
+            region_of: dict[int, int] = {}
+            regions: list[set[int]] = []
+            for start in range(0, 22):  # 0..20 任务格（含 L1）；21–26 能源格不参与
+                if start in region_of:
                     continue
-                nb = self.cells[nid]
-                if nb.owner == "defender":
+                start_cell = self.cells[start]
+                if start_cell.is_energy or start_cell.owner == "defender":
                     continue
-                if nb.is_energy:
-                    failed = True
-                    break
-                if nb.owner == "attacker" and nb.activated:
-                    failed = True
-                    break
-                visited.add(nid)
-                queue.append(nid)
-            if failed:
+                region: set[int] = set()
+                queue = deque([start])
+                region.add(start)
+                region_of[start] = len(regions)
+                while queue:
+                    cur = self.cells[queue.popleft()]
+                    for nid in cur.neighbors:
+                        if (nid in region_of or nid >= 21
+                                or self.cells[nid].owner == "defender"):
+                            continue
+                        region.add(nid)
+                        region_of[nid] = len(regions)
+                        queue.append(nid)
+                regions.append(region)
+
+            # 2) 转换全部被完全围住的区域（一次遍历；L1-only 区域豁免跳过），
+            #    然后迭代到不动点（转换出的防守方格可继续围住相邻区域）。
+            newly: list[int] = []
+            for region in regions:
+                if not self._region_enclosed(region):
+                    continue
+                targets = [i for i in region if i != 0]  # L1 豁免：不转换
+                if not targets:
+                    continue  # 纯 L1 区域：无可转换格，跳过不中断
+                for i in targets:
+                    cell = self.cells[i]
+                    if cell.owner == "attacker":
+                        cell.activated = False
+                    cell.owner = "defender"
+                newly.extend(targets)
+            if not newly:
+                break
+            converted.extend(newly)
+            if len(converted) >= 21:
                 break
 
-        if failed:
-            return
+        if converted:
+            self._log(
+                f"包围成立！{len(converted)}格变为防守方地块",
+                "encircle",
+            )
 
-        encircled = {
-            i for i in visited
-            if i != 0  # L1 豁免包围
-            and self.cells[i].owner != "defender"
-            and not self.cells[i].is_energy
-        }
-        if not encircled:
-            return
+    def _region_enclosed(self, region: set[int]) -> bool:
+        """区域被完全围住 ⟺ 区域内每格的每个邻接格都在区域内或是防守方占领。
 
-        # 一次性触发：永久标记 + 非守护者地块退化为未占领
-        self.encirclement_used = True
-        self.encirclement_active = True
-        self.encircled_cells = encircled
-        for i in encircled:
-            cell = self.cells[i]
-            cell.owner = None
-            cell.activated = False
-        self._log(
-            f"包围成立！{len(encircled)}格被永久标记，非守护者地块已退化为未占领",
-            "encircle",
-        )
+        邻接槽位缺失（`neighbors` 中不存在）= 地图边界 = 封闭边，无需检查。
+        邻接格为攻击方 / 未占领 / 能源格 → 非防守方，判定失败。
+        """
+        for i in region:
+            for nid in self.cells[i].neighbors:
+                if nid in region:
+                    continue
+                if self.cells[nid].owner != "defender":
+                    return False
+        return True
 
     def recalc_scores(self) -> None:
         def_score = 0
@@ -359,7 +377,7 @@ class GameController:
     def _occupation_annotations(self, cell: Cell, team: str) -> str:
         parts = []
         if team == "defender":
-            parts.append("[守卫]")
+            parts.append("[防守]")
         elif team == "attacker":
             if cell.activated:
                 parts.append("[已激活]")
@@ -369,8 +387,6 @@ class GameController:
                     parts.append(f"[能源+{energy_n}]")
             else:
                 parts.append("[未激活]")
-        if cell.id in self.encircled_cells:
-            parts.append("[包围]")
         return "".join(parts)
 
     def check_top_victory(self) -> None:
@@ -382,7 +398,7 @@ class GameController:
             self.winner = "attacker"
             self.win_type = "top"
             self._log(
-                f"进攻方顶端直胜！直接获胜",
+                f"攻击方顶端直胜！直接获胜",
                 "victory",
             )
 
@@ -393,9 +409,9 @@ class GameController:
 
     def _team_cn(self, team: str | None) -> str:
         if team == "defender":
-            return "守护者"
+            return "防守方"
         if team == "attacker":
-            return "掠夺者"
+            return "攻击方"
         if team == "draw":
             return "平局"
         return "未知"
@@ -405,9 +421,6 @@ class GameController:
 
     def get_board(self) -> list[dict]:
         return [c.to_dict() for c in self.cells]
-
-    def get_encircled(self) -> list[int]:
-        return sorted(self.encircled_cells)
 
     def get_l1_status(self) -> dict:
         return {
@@ -433,8 +446,6 @@ class GameController:
         return {
             "board": self.get_board(),
             "scores": self.get_scores(),
-            "encircled": self.get_encircled(),
-            "encirclement_active": self.encirclement_active,
             "l1": self.get_l1_status(),
             "elapsed": round(self.elapsed(), 2),
             "time_limit": self.time_limit_minutes,

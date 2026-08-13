@@ -99,13 +99,7 @@ function shotDrawCell(ctx, cell, x, y) {
   ctx.fillRect(x, y, w, h);
   ctx.strokeStyle = border;
   ctx.lineWidth = 2;
-  if (cell.encircled) {
-    ctx.setLineDash([6, 4]);
-    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
-    ctx.setLineDash([]);
-  } else {
-    ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
-  }
+  ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
 
   if (cell.is_energy) {
     ctx.font = "16px 'Microsoft YaHei', Arial, sans-serif";
@@ -117,17 +111,10 @@ function shotDrawCell(ctx, cell, x, y) {
     return;
   }
 
-  // 已激活进攻方：左上角金色方块标记
+  // 已激活攻击方：左上角金色方块标记
   if (cell.owner === "attacker" && cell.activated) {
     ctx.fillStyle = "#fbbf24";
     ctx.fillRect(x + 4, y + 4, 8, 8);
-  }
-  // 包围：左下角蓝点
-  if (cell.encircled) {
-    ctx.fillStyle = "#3b82f6";
-    ctx.beginPath();
-    ctx.arc(x + 10, y + h - 10, 4, 0, Math.PI * 2);
-    ctx.fill();
   }
 
   // 右上角分数
@@ -223,9 +210,9 @@ async function captureScreenshot() {
   ctx.font = "14px 'Microsoft YaHei', Arial, sans-serif";
   ctx.fillStyle = "#888888";
   ctx.textAlign = "left";
-  ctx.fillText("守护者", leftX, scoreY0 + 24);
+  ctx.fillText("防守方", leftX, scoreY0 + 24);
   ctx.textAlign = "right";
-  ctx.fillText("掠夺者", rightX, scoreY0 + 24);
+  ctx.fillText("攻击方", rightX, scoreY0 + 24);
   ctx.font = "bold 66px Arial, sans-serif";
   ctx.textAlign = "left";
   ctx.fillStyle = "#60a5fa";
@@ -256,14 +243,11 @@ async function captureScreenshot() {
 
   // 棋盘
   let y = scoreY0 + scoreH + SHOT_PAD;
-  const encircledSet = new Set(state.encircled || []);
   for (const row of rows) {
     const rw = rowWidth(row.length);
     let x = (canvasW - rw) / 2;
     for (const cell of row) {
-      const c = Object.assign({}, cell);
-      c.encircled = encircledSet.has(cell.id);
-      shotDrawCell(ctx, c, x, y);
+      shotDrawCell(ctx, cell, x, y);
       x += SHOT_CELL_W + SHOT_GAP_X;
     }
     y += SHOT_CELL_H + SHOT_GAP_Y;
@@ -325,19 +309,12 @@ function renderPanel(state) {
   const l1 = state.l1;
   const l1El = document.getElementById("l1-status");
   if (l1.holder) {
-    const holderCn = l1.holder === "defender" ? "守护者" : "掠夺者";
+    const holderCn = l1.holder === "defender" ? "防守方" : "攻击方";
     const holderColor = l1.holder === "defender" ? "var(--defender-bright)" : "var(--attacker-bright)";
     const tpStr = (l1.high_tp !== null && l1.high_tp !== undefined) ? ` · tp${l1.high_tp}` : "";
     l1El.innerHTML = `<b style="color:${holderColor}">${holderCn}</b><br>${l1.high_score.toLocaleString()}${tpStr}`;
   } else {
     l1El.textContent = "未占领";
-  }
-
-  const encEl = document.getElementById("encircle-status");
-  if (state.encirclement_active && state.encircled.length > 0) {
-    encEl.innerHTML = `<b style="color:var(--defender-bright)">成立 · ${state.encircled.length}格</b>`;
-  } else {
-    encEl.textContent = "未触发";
   }
 
   const phaseEl = document.getElementById("game-phase");
@@ -350,12 +327,12 @@ function renderPanel(state) {
   } else if (state.game_over) {
     if (state.win_type === "top") {
       phaseEl.textContent = "顶端直胜";
-      bannerEl.textContent = "谐律崩解 · 进攻方获胜";
+      bannerEl.textContent = "谐律崩解 · 攻击方获胜";
       boardArea.classList.add("victory-flash");
     } else {
       phaseEl.textContent = "计时结束";
       const w = state.winner;
-      bannerEl.textContent = w === "draw" ? "平局" : (w === "defender" ? "守护者获胜" : "掠夺者获胜");
+      bannerEl.textContent = w === "draw" ? "平局" : (w === "defender" ? "防守方获胜" : "攻击方获胜");
     }
   } else {
     phaseEl.textContent = "进行中";

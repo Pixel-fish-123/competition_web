@@ -15,7 +15,6 @@ function getLayerAndIndex(id) {
 const pyramidEl = document.getElementById("pyramid");
 let cellElements = {};
 let boardState = [];
-let encircledSet = new Set();
 let hoverId = -1;
 let selectedTeam = null;
 let pendingL1 = null;
@@ -81,7 +80,6 @@ function renderBoard() {
       el.classList.add("owner-attacker");
       if (cell.activated) el.classList.add("activated");
     }
-    if (encircledSet.has(id)) el.classList.add("encircled");
 
     const songEl = cell.song_name ? `<div class="cell-song">${cell.song_name}</div>` : "";
     const diffLabel = cell.difficulty_label || ("CHAOS " + cell.diff_score);
@@ -118,7 +116,7 @@ function onCellClick(id) {
 
 function refreshState() {
   fetch("/api/state").then(r => r.json()).then(s => {
-    window.setBoardState(s.board, s.encircled);
+    window.setBoardState(s.board);
     window.renderPanel(s);
   }).catch(() => {});
 }
@@ -183,14 +181,11 @@ setTimeout(fitPyramid, 100);
 setTimeout(fitPyramid, 400);
 
 window.renderBoard = renderBoard;
-window.setBoardState = (board, encircled) => {
+window.setBoardState = (board) => {
   boardState = board;
-  encircledSet = new Set(encircled);
-  window.encircledSet = encircledSet;
   renderBoard();
   fitPyramid();
 };
-window.encircledSet = encircledSet;
 window.getSelectedTeam = () => selectedTeam;
 window.setSelectedTeam = (t) => { selectedTeam = t; };
 window.getBoardState = () => boardState;

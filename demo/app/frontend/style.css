@@ -327,18 +327,6 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
 .cell.owner-attacker:not(.activated) .cell-song { color: #8a5050; }
 .cell.owner-attacker:not(.activated) .cell-task { color: #a35858; }
 
-.cell.encircled {
-  border-color: var(--defender) !important;
-  border-style: dashed;
-}
-.cell.encircled::before {
-  content: "";
-  position: absolute;
-  bottom: 3px; left: 4px;
-  width: 6px; height: 6px;
-  background: var(--defender);
-}
-
 .cell.energy {
   background: #1a1500;
   border-color: var(--gold-deep);

@@ -28,18 +28,21 @@ python app/main/main.py --headless
 
 - 占领变化后的顺序不可改变：`update_activation` → `check_encirclement` → `recalc_scores` → `check_top_victory`。
 - 普通格占领不可覆盖；只有 L1 可反复争夺（score/tp 挑战）。
-- **L1 完全豁免包围**：不进入包围集合、无包围样式/`[包围]` 标注、不受退化影响，双方可反复争夺直至游戏结束。
-- **包围每局只触发一次**：触发后 `encircled_cells` 永久标记（不解除、不二次触发）；触发时包围区内非守护者占领的地块自动退化为未占领（owner→None、activated=False）。
-- 进攻方未激活格不计分；L1 占领本身计分，但只有激活后才触发顶端直胜。
+- **新包围系统**：非防守方连通区域（未占领 + 攻击方占领格）被「防守方占领格 / 地图边界」完全围住时，整片变为防守方地块；**可多次触发**（每次占领变化后判定，单次判定内迭代到不动点）。
+- **L1 可属于包围区域，但本身不被转换**（不会变成防守方地块）；双方可反复争夺直至游戏结束。
+- 包围封闭判定：区域内每格的每个邻接格要么属于本区域、要么是防守方占领；邻接攻击方 / 未占领 / 能源格 → 不成立；邻接槽位缺失（地图边界）视为封闭边。
+- 攻击方未激活格不计分；L1 占领本身计分，但只有激活后才触发顶端直胜。
 - 能源加成是 `min(energy_count - 1, 2)`，每格最高 `+2`。
 - 歌曲得分只看等级数值，`type` 前缀（Chaos/Glitch/Hard）无关；歌曲缺 `level` 或 level 非法 → 400（带下标中文错误），不得 500。
 - 导出日志和截图在开发模式写入 `app/exports/`；打包 exe 时写入 exe 同目录的 `exports/`。
 
 ## 验证
 
-仓库没有测试框架。修改 Python 核心后至少运行：
+玩法正确性用 `tests/`（pytest）守护，修改 Python 核心后至少运行：
 
 ```bash
+python -m pip install -r requirements-dev.txt   # 首次：安装 pytest（仅开发依赖）
+python -m pytest tests -q                        # 玩法测试全绿
 python -c "import sys; sys.path.insert(0, 'app'); from controller.task_gen import generate_tasks; from controller.game import GameController; g=GameController(); g.init(generate_tasks(42)); print('ok', len(g.cells))"
 python app/tools/gen_test_songs.py --seed 1
 python -c "import sys; sys.path.insert(0, 'app'); import json; from controller.song_lib import parse_song_library; d=json.load(open('test_songs.json',encoding='utf-8')); print('songs', len(parse_song_library(d)))"

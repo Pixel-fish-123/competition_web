@@ -16,8 +16,9 @@ import random
 import sys
 from pathlib import Path
 
-# Import the validator from the controller package (project root on sys.path).
+# Import the validator and rule loader from the controller package (project root on sys.path).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from controller.rules import load_rules  # noqa: E402
 from controller.song_lib import parse_song_library  # noqa: E402
 
 PREFIXES = [
@@ -31,14 +32,22 @@ SUFFIXES = [
     "Genesis", "Paradox",
 ]
 
-# Weighted difficulty pool, mid-tier heavy.
-DIFFICULTY_POOL = [
-    ("15+", 1), ("16", 1), ("16+", 1),
-    ("15", 2), ("14+", 2), ("14", 2),
-    ("13+", 3), ("13", 3), ("12+", 3), ("12", 3),
-    ("11+", 2), ("11", 2), ("10", 2), ("10+", 2),
-    ("9+", 2), ("9", 2), ("8", 2),
-]
+# 难度权重池（level -> 权重，中档为主）改由 config/rules.json 提供（song_level_weights）；
+# 配置缺失/损坏时回退内置默认，保证工具始终可用。
+_DEFAULT_POOL: dict[str, int] = {
+    "15+": 1, "16": 1, "16+": 1,
+    "15": 2, "14+": 2, "14": 2,
+    "13+": 3, "13": 3, "12+": 3, "12": 3,
+    "11+": 2, "11": 2, "10": 2, "10+": 2,
+    "9+": 2, "9": 2, "8": 2,
+}
+
+
+def _difficulty_pool() -> dict[str, int]:
+    """从规则配置读取测试歌曲难度权重池（level -> weight）。"""
+    weights = (load_rules().get("song_level_weights") or {})
+    pool = {str(lv): int(w) for lv, w in weights.items() if int(w) > 0}
+    return pool or dict(_DEFAULT_POOL)
 
 # The 8 diff-score tiers we must cover, each mapped to a level that yields it.
 TIER_LEVELS = {
@@ -55,16 +64,17 @@ TIER_LEVELS = {
 TYPES = ["Glitch", "Chaos", "Hard"]
 
 
-def _weighted_pick(pool, rng: random.Random):
-    """Weighted random pick from a list of (value, weight) tuples."""
-    total = sum(w for _, w in pool)
+def _weighted_pick(pool: dict[str, int], rng: random.Random) -> str:
+    """Weighted random pick from a {value: weight} dict."""
+    items = list(pool.items())
+    total = sum(w for _, w in items)
     r = rng.uniform(0, total)
     upto = 0.0
-    for value, weight in pool:
+    for value, weight in items:
         upto += weight
         if upto >= r:
             return value
-    return pool[-1][0]
+    return items[-1][0]
 
 
 def _make_name(rng: random.Random, used: set[str]) -> str:
@@ -96,14 +106,15 @@ def generate_songs(count: int, rng: random.Random) -> list[dict]:
             "level": TIER_LEVELS[tier],
         })
 
-    # Remaining songs: random weighted difficulty.
+    # Remaining songs: random weighted difficulty (pool from config/rules.json).
+    pool = _difficulty_pool()
     while len(songs) < count:
         name = _make_name(rng, used_names)
         used_names.add(name)
         songs.append({
             "name": name,
             "type": rng.choice(TYPES),
-            "level": _weighted_pick(DIFFICULTY_POOL, rng),
+            "level": _weighted_pick(pool, rng),
         })
 
     return songs

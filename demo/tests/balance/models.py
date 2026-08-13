@@ -68,7 +68,7 @@ class BalanceConfig:
     team_size: int = 3                    # 每方同时进行中的挑战数（3 人团队）
     time_model: TimeModel = field(default_factory=TimeModel)
     l1_challenge_minutes: float = 2.0     # L1 挑战耗时（分钟；=完整打一首歌的成本，对照实验 B 为均衡点）
-    l1_energy_target: int = 10            # L1 能量胜利目标点数（开局防守方 0/0 占 L1 后校准：10 时 51:49）
+    l1_energy_target: int = 10            # L1 能量胜利目标点数（用户最终确认值 10）
     l1_energy_interval: float = 2.0       # 攻击方持有 L1 期间积累间隔（分钟，调大 -> 攻击方更难）
     l1_score_lo: int = 950000             # L1 挑战分数区间
     l1_score_hi: int = 1000000

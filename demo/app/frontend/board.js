@@ -23,6 +23,16 @@ function buildPyramid() {
   pyramidEl.innerHTML = "";
   cellElements = {};
 
+  // L1 能量线：独立于 L1 格正上方的一行（与 L1 方格同宽、水平对齐），
+  // 内含能量格点 + 攻击方等待进度条；不占用格子内部空间，避免遮挡歌名/难度/任务
+  const l1Line = document.createElement("div");
+  l1Line.className = "l1-energy-line";
+  l1Line.id = "l1-energy-line";
+  l1Line.innerHTML =
+    '<div class="l1-pips"></div>' +
+    '<div class="l1-timer"><div class="l1-timer-fill" id="l1-timer-fill"></div></div>';
+  pyramidEl.appendChild(l1Line);
+
   for (let layer = 1; layer <= 6; layer++) {
     const row = document.createElement("div");
     row.className = "pyramid-row";
@@ -87,28 +97,36 @@ function renderBoard() {
     const taskShort = cell.task_name || "-";
     const bonusTag = (cell.owner === "attacker" && cell.activated && cell.energy_bonus > 0)
       ? `<span class="cell-bonus">(+${cell.energy_bonus})</span>` : "";
-    // L1：上半部分 8 个能量格点（居中）+ 攻击方持有时的持续时间条
-    let topHtml = "";
-    if (id === 0) {
-      const e = window._l1Energy || { value: 0, target: 10, holder: null, progress: 0 };
-      const target = e.target || 10;
-      let pips = "";
-      for (let i = 0; i < target; i++) {
-        pips += `<span class="l1-pip${i < (e.value || 0) ? " on" : ""}"></span>`;
-      }
-      const timer = e.holder === "attacker"
-        ? `<div class="l1-timer"><div class="l1-timer-fill" id="l1-timer-fill" style="width:${Math.round((e.progress || 0) * 100)}%"></div></div>`
-        : "";
-      topHtml = `<div class="l1-pips">${pips}</div>${timer}`;
-    }
+    // L1 格内部只渲染正常内容（歌名/难度/任务/分数）；
+    // 能量格点行与等待进度条独立于格子上方（见 updateL1Line）
     el.innerHTML = `
-      ${topHtml}
       <div class="cell-score">${cell.total_score}${bonusTag}</div>
       ${songEl}
       <div class="cell-diff">${diffLabel}</div>
       <div class="cell-task">${taskShort}</div>
     `;
   }
+  updateL1Line();
+}
+
+// 更新 L1 能量线：格点数量 = 能量目标（10），攻击方持有时显示等待进度条
+function updateL1Line() {
+  const line = document.getElementById("l1-energy-line");
+  if (!line) return;
+  const e = window._l1Energy || { value: 0, target: 10, holder: null, progress: 0 };
+  const target = Math.max(1, e.target || 10);
+  const pipsEl = line.querySelector(".l1-pips");
+  let pips = "";
+  for (let i = 0; i < target; i++) {
+    pips += `<span class="l1-pip${i < (e.value || 0) ? " on" : ""}" title="能量 ${i + 1}/${target}"></span>`;
+  }
+  pipsEl.innerHTML = pips;
+  const timerEl = line.querySelector(".l1-timer");
+  const holderIsAtk = e.holder === "attacker";
+  timerEl.classList.toggle("show", holderIsAtk);
+  if (holderIsAtk) timerEl.title = "攻击方持有 L1 · 距下次 +1 能量";
+  const fill = document.getElementById("l1-timer-fill");
+  if (fill) fill.style.width = Math.round((e.progress || 0) * 100) + "%";
 }
 
 function onCellClick(id) {

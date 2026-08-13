@@ -9,7 +9,7 @@ from .rules import RULES
 
 TIME_LIMIT_MINUTES = 25.0
 MAX_PLAYABLE_CELL_ID = 20
-L1_ENERGY_TARGET = 10         # L1 能量满 10 点 -> 攻击方直接胜利（开局防守方 0/0 占 L1 后校准：攻击方首次挑战必得手，目标相应提高）
+L1_ENERGY_TARGET = 10         # L1 能量满 10 点 -> 攻击方直接胜利（用户最终确认值）
 L1_ENERGY_INTERVAL_MIN = 2.0  # 攻击方持有 L1 期间每 2 分钟 +1 能量
 
 
@@ -32,7 +32,7 @@ class GameController:
     l1_high_tp: float | None = None
     l1_high_team: str | None = None
     l1_energy: int = 0              # L1 能量点数（攻击方持有累计，达目标攻击方胜）
-    l1_energy_target: int = L1_ENERGY_TARGET          # 能量胜利目标点数（默认 7）
+    l1_energy_target: int = L1_ENERGY_TARGET          # 能量胜利目标点数（默认 10）
     l1_energy_interval_min: float = L1_ENERGY_INTERVAL_MIN  # 持有积累间隔（默认 2 分钟）
     _l1_energy_ts: float = 0.0      # 攻击方上次能量基准（elapsed 分钟）
     _time_fn: Any = field(default=time.time, repr=False)  # 时间源（模拟器可注入）

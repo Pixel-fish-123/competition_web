@@ -332,12 +332,19 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
   border-style: dashed;
 }
 
-/* L1 能量：8 格点（上半部分居中）+ 持续时间条 */
+/* L1 能量线：独立于 L1 格正上方的一行（与 L1 方格同宽、水平对齐），
+   内含能量格点行 + 攻击方等待进度条；不占用格子内部空间，不遮挡歌名/难度/任务 */
+.l1-energy-line {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  width: 120px;
+}
 .l1-pips {
   display: flex;
   justify-content: center;
   gap: 3px;
-  margin-bottom: 3px;
 }
 .l1-pip {
   width: 8px;
@@ -350,13 +357,17 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
   background: var(--gold);
   box-shadow: 0 0 4px var(--gold);
 }
+/* 攻击方等待进度条：持有 L1 时显示，表示距下次 +1 能量的进度 */
 .l1-timer {
-  width: 84%;
+  width: 100%;
   height: 4px;
   background: #222;
-  margin: 0 auto 3px;
   border-radius: 2px;
   overflow: hidden;
+  display: none;
+}
+.l1-timer.show {
+  display: block;
 }
 .l1-timer-fill {
   height: 100%;

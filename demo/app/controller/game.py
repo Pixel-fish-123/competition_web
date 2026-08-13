@@ -494,7 +494,8 @@ class GameController:
 
     def _l1_energy_progress(self) -> float:
         """攻击方持有 L1 期间距下次 +1 的进度（0~1），供前端持续时间条显示。"""
-        if self.game_over or self.cells[0].owner != "attacker":
+        if (not self.cells or self.game_over
+                or self.cells[0].owner != "attacker"):
             return 0.0
         if self.l1_energy >= self.l1_energy_target:
             return 0.0

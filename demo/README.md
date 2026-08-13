@@ -32,7 +32,7 @@ python -m pip install -r app/main/requirements.txt
 python app/main/main.py
 ```
 
-浏览器访问 `http://127.0.0.1:8001`；服务会自动尝试 8002、8003（8000 预留给比赛网站）。不需要浏览器时用 `python app/main/main.py --headless`（仅提供 API，适合冒烟测试，且不会自动退出）。Windows 用户也可双击 `app/main/启动服务.bat`。
+浏览器访问 `http://127.0.0.1:8001`；服务会自动尝试 8002、8003（8000 预留给比赛网站）。不需要浏览器时用 `python app/main/main.py --headless`（仅提供 API，适合冒烟测试，且不会自动退出）。Windows 用户可双击 `app/main/启动服务.bat`；跑玩法测试双击 `app/main/运行测试.bat`（pytest，首次自动安装开发依赖）。
 
 所有浏览器标签页关闭后，控制器会在约 10 秒后自动退出（`--headless` 下禁用该看门狗）。
 

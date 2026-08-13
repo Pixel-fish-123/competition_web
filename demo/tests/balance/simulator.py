@@ -110,7 +110,7 @@ def _choose_target(g: GameController, team: str, cfg: BalanceConfig,
                    rng: random.Random, pending: set[int]):
     """返回 (cell_id, kind, score, tp) 或 None（无可选目标）。"""
     if team == "attacker":
-        # 攻击方 L1 冲刺：L1 是核心战略资产（能量积累满 7 点胜利 + 压制包围），
+        # 攻击方 L1 冲刺：L1 是核心战略资产（能量积累满目标胜利 + 压制包围），
         # 未持有且能量达到阈值时随时挑战（a_l1_energy_go=0 即开局抢 L1）。
         if (g.l1_high_team != "attacker"
                 and g.l1_energy >= cfg.a_l1_energy_go):
@@ -148,6 +148,9 @@ def simulate_match(songs: list[Song], seed: int, cfg: BalanceConfig) -> MatchRes
     clock = [0.0]
     g._time_fn = lambda: clock[0]
     g._start_ts = 0.0
+    # 注入 L1 能量参数（平衡旋钮：目标点数 / 积累间隔）
+    g.l1_energy_target = cfg.l1_energy_target
+    g.l1_energy_interval_min = cfg.l1_energy_interval
 
     t = 0.0
     tasks: dict[str, list[_Task]] = {"defender": [], "attacker": []}

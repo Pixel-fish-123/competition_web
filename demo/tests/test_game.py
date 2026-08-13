@@ -332,7 +332,7 @@ def test_energy_adjacent_attacker_never_captured():
 
 
 def test_l1_energy_immediate_on_occupy():
-    """攻击方占领 L1 立刻 +1 能量；持有满 2 分钟再 +1；未满 7 点不胜利。"""
+    """攻击方占领 L1 立刻 +1 能量；持有满 2 分钟再 +1；未满 8 点不胜利。"""
     g, clock = clock_game()
     g.occupy(0, "attacker", score=900000)
     assert g.l1_energy == 1          # 占领立刻 +1
@@ -353,12 +353,12 @@ def test_l1_energy_accrues_every_two_minutes():
     assert g.l1_energy == 3
 
 
-def test_l1_energy_victory_at_seven():
+def test_l1_energy_victory_at_eight():
     g, clock = clock_game()
     g.occupy(0, "attacker", score=900000)   # 立刻 +1 = 1，倒计时从 0 开始
-    clock[0] = 12 * 60 + 1                   # 连续持有 12 分钟 -> +6 -> 7 点
+    clock[0] = 14 * 60 + 1                   # 连续持有 14 分钟 -> +7 -> 8 点
     g._sync_elapsed()
-    assert g.l1_energy == 7
+    assert g.l1_energy == 8
     assert g.game_over
     assert g.winner == "attacker"
     assert g.win_type == "l1_energy"
@@ -442,8 +442,8 @@ def test_update_chain_runs_on_every_occupation():
     g.occupy(0, "attacker", score=999999)   # 占 L1：立刻 +1，倒计时开始
     assert g.l1_energy == 1
     assert g.game_over is False
-    clock[0] = 13 * 60.0
-    g._sync_elapsed()                        # 连续持有 13 分钟 -> +6 -> 满 7 胜利
+    clock[0] = 15 * 60.0
+    g._sync_elapsed()                        # 连续持有 15 分钟 -> +7 -> 满 8 胜利
     assert g.game_over and g.win_type == "l1_energy"
 
 

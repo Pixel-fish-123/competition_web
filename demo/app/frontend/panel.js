@@ -316,7 +316,7 @@ function renderPanel(state) {
   } else {
     l1El.textContent = "未占领";
   }
-  // L1 能量：攻击方持有期间积累（满 7 点攻击方直接获胜）；持有期间包围失效
+  // L1 能量：攻击方持有期间积累（满 target 点攻击方直接获胜）；持有期间包围失效
   const energyEl = document.getElementById("l1-energy");
   const target = state.l1_energy_target || 7;
   const holderIsAtk = l1.holder === "attacker";

@@ -166,7 +166,7 @@ def build_report(results, cfg: BalanceConfig, games: int, seed: int) -> str:
     add(f"- **包围触发**：{enc_games} 局（{enc_games / n * 100:.1f}%）发生包围，"
         f"合计 {enc_total} 次（平均 {enc_total / n:.2f} 次/局，单局最多 {enc_max} 次）")
     add(f"- **L1 挑战**：{l1_games} 局（{l1_games / n * 100:.1f}%）发生 L1 挑战，"
-        f"合计 {l1_total} 次（平均 {l1_total / n:.2f} 次/局）；平均终局 L1 能量 {l1_energy_avg:.2f}/7")
+        f"合计 {l1_total} 次（平均 {l1_total / n:.2f} 次/局）；平均终局 L1 能量 {l1_energy_avg:.2f}/{cfg.l1_energy_target}")
     add("")
     add("### 2.3 比分与占领统计（平均）")
     add("")

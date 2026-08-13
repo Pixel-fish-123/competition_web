@@ -65,7 +65,7 @@ def test_simulate_single_match(songs):
     assert r.template in ("A", "B", "C")
     assert r.encirclement_count >= 0
     assert r.l1_challenges >= 0
-    assert 0 <= r.l1_energy <= 7
+    assert 0 <= r.l1_energy <= 8
 
 
 def test_encirclement_count_matches_events(songs):

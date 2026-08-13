@@ -9,7 +9,7 @@ from .rules import RULES
 
 TIME_LIMIT_MINUTES = 25.0
 MAX_PLAYABLE_CELL_ID = 20
-L1_ENERGY_TARGET = 7          # L1 能量满 7 点 -> 攻击方直接胜利
+L1_ENERGY_TARGET = 8          # L1 能量满 8 点 -> 攻击方直接胜利（平衡校准：7 时攻击方 51.5%）
 L1_ENERGY_INTERVAL_MIN = 2.0  # 攻击方持有 L1 期间每 2 分钟 +1 能量
 
 
@@ -31,7 +31,9 @@ class GameController:
     l1_high_score: int | None = None
     l1_high_tp: float | None = None
     l1_high_team: str | None = None
-    l1_energy: int = 0              # L1 能量点数（攻击方持有累计，达 7 点攻击方胜）
+    l1_energy: int = 0              # L1 能量点数（攻击方持有累计，达目标攻击方胜）
+    l1_energy_target: int = L1_ENERGY_TARGET          # 能量胜利目标点数（默认 7）
+    l1_energy_interval_min: float = L1_ENERGY_INTERVAL_MIN  # 持有积累间隔（默认 2 分钟）
     _l1_energy_ts: float = 0.0      # 攻击方上次能量基准（elapsed 分钟）
     _time_fn: Any = field(default=time.time, repr=False)  # 时间源（模拟器可注入）
     game_over: bool = False
@@ -76,31 +78,31 @@ class GameController:
             self._accrue_l1_energy()
 
     def _accrue_l1_energy(self) -> None:
-        """攻击方持有 L1 期间按时间积累能量（连续持有每 L1_ENERGY_INTERVAL_MIN 分钟 +1）。
+        """攻击方持有 L1 期间按时间积累能量（连续持有每 interval 分钟 +1）。
 
         攻击方每次夺回 L1 时立刻 +1 并重置计时基准（倒计时重新开始）；防守方夺回后
-        能量保留、暂停积累；满 L1_ENERGY_TARGET 点 -> 攻击方直接胜利。
+        能量保留、暂停积累；满目标点数 -> 攻击方直接胜利。
         """
         if self.game_over or self.cells[0].owner != "attacker":
             return
         now = self.elapsed()
-        gained = int((now - self._l1_energy_ts) / L1_ENERGY_INTERVAL_MIN)
+        gained = int((now - self._l1_energy_ts) / self.l1_energy_interval_min)
         if gained <= 0:
             return
-        self._l1_energy_ts += gained * L1_ENERGY_INTERVAL_MIN
-        self.l1_energy = min(self.l1_energy + gained, L1_ENERGY_TARGET)
-        if self.l1_energy >= L1_ENERGY_TARGET:
+        self._l1_energy_ts += gained * self.l1_energy_interval_min
+        self.l1_energy = min(self.l1_energy + gained, self.l1_energy_target)
+        if self.l1_energy >= self.l1_energy_target:
             self._l1_victory()
         else:
-            self._log(f"L1能量积累至{self.l1_energy}/{L1_ENERGY_TARGET}", "l1")
+            self._log(f"L1能量积累至{self.l1_energy}/{self.l1_energy_target}", "l1")
 
     def _l1_victory(self) -> None:
-        """L1 能量满 7 点：攻击方直接获胜（防守方分数保留不变）。"""
+        """L1 能量满目标：攻击方直接获胜（防守方分数保留不变）。"""
         self._sync_elapsed()
         self.game_over = True
         self.winner = "attacker"
         self.win_type = "l1_energy"
-        self._log("攻击方L1能量满7点，直接获胜", "victory")
+        self._log(f"攻击方L1能量满{self.l1_energy_target}点，直接获胜", "victory")
 
     def _check_timeout(self) -> bool:
         self._sync_elapsed()
@@ -184,14 +186,14 @@ class GameController:
             name = cell.song_name or cell.difficulty_label or f"CHAOS {cell.diff_score}"
             if team == "attacker":
                 # 攻击方占领 L1：立刻 +1 能量（含夺回），并重置持有计时基准
-                # （倒计时从此刻重新开始，连续持有满 2 分钟再 +1）
-                self.l1_energy = min(self.l1_energy + 1, L1_ENERGY_TARGET)
+                # （倒计时从此刻重新开始，连续持有满 interval 分钟再 +1）
+                self.l1_energy = min(self.l1_energy + 1, self.l1_energy_target)
                 self._l1_energy_ts = self.elapsed()
                 self._log(
-                    f"攻击方占领L1，能量+1（{self.l1_energy}/{L1_ENERGY_TARGET}）",
+                    f"攻击方占领L1，能量+1（{self.l1_energy}/{self.l1_energy_target}）",
                     "l1",
                 )
-                if self.l1_energy >= L1_ENERGY_TARGET:
+                if self.l1_energy >= self.l1_energy_target:
                     self._l1_victory()
                     return True
             self._run_update_chain()
@@ -476,7 +478,7 @@ class GameController:
         return "".join(parts)
 
     def check_l1_energy(self) -> None:
-        """L1 能量检查（替代旧顶端直胜）：攻击方持有期间按时间积累，满 7 点直接获胜。
+        """L1 能量检查（替代旧顶端直胜）：攻击方持有期间按时间积累，满目标点数直接获胜。
 
         旧「攻击方占领并激活 L1 即秒胜」已移除；L1 激活不再影响胜负（得分豁免不变）。
         """
@@ -528,7 +530,7 @@ class GameController:
             "scores": self.get_scores(),
             "l1": self.get_l1_status(),
             "l1_energy": self.l1_energy,
-            "l1_energy_target": L1_ENERGY_TARGET,
+            "l1_energy_target": self.l1_energy_target,
             "elapsed": round(self.elapsed(), 2),
             "time_limit": self.time_limit_minutes,
             "events": [e.to_dict() for e in self.events[:50]],

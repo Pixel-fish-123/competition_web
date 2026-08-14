@@ -2,21 +2,15 @@
 
 - GET /api/competitions/{competition_id}/schedule   指定比赛赛程（公开只读）
 - GET /api/schedule/current                         当前进行中的比赛（公开只读）
-- GET /competitions/{competition_id}/bracket        赛程图 HTML 页（公开只读，
-  布局照抄 tournament-organizer 的 bracket.ejs：按轮次分列 + game 卡片 + 胜者加粗；
-  图片由机器人插件用 web-read 对页面截图，不依赖后端装无头浏览器）
 
 这些接口是公开只读的（机器人无需登录即可拉取），但会暴露展示所需的昵称与
 QQ 号。如不希望 QQ 对外可见，部署时请在反向代理层对上述路径增加访问控制
 （如 IP 白名单 / 内部网络隔离）。
 """
 
-import os
 from collections.abc import Iterable
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -34,11 +28,6 @@ from app.schemas.schedule import (
 )
 
 router = APIRouter()
-
-_templates_dir = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "templates"
-)
-_templates = Jinja2Templates(directory=_templates_dir)
 
 
 def _get_competition_or_404(db: Session, competition_id: int) -> Competition:
@@ -115,6 +104,7 @@ def _load_roster(
         if team_reg is not None:
             team = teams.get(pid)
             roster[pid] = ScheduleParticipant(
+                id=team.id if team else pid,
                 type="team",
                 name=team.name if team else None,
                 qqs=[u.qq for u in members.get(pid, []) if u.qq],
@@ -124,12 +114,13 @@ def _load_roster(
         if user_reg is not None:
             user = users.get(pid)
             roster[pid] = ScheduleParticipant(
+                id=user.id if user else pid,
                 type="individual",
                 name=(user.nickname or user.username) if user else None,
                 qqs=[user.qq] if user and user.qq else [],
             )
             continue
-        roster[pid] = ScheduleParticipant(type="unknown", name=None, qqs=[])
+        roster[pid] = ScheduleParticipant(id=pid, type="unknown", name=None, qqs=[])
     return roster
 
 
@@ -151,6 +142,7 @@ def _build_schedule(db: Session, competition: Competition) -> ScheduleOut:
                 round_id=m.round_id,
                 status=m.status,
                 result_type=m.result_type,
+                result=m.result,
                 participant_a=roster.get(m.participant_a),
                 participant_b=roster.get(m.participant_b),
             )
@@ -177,95 +169,3 @@ def get_current_schedule(db: Session = Depends(get_db)) -> ScheduleOut:
     if competition is None:
         raise HTTPException(status_code=404, detail="当前没有进行中的比赛")
     return _build_schedule(db, competition)
-
-
-def _round_name(round_id: int, total_rounds: int) -> str:
-    """轮次命名，与前端 ScheduleChart.roundName 保持一致。"""
-    if round_id == 1:
-        return "第一轮"
-    from_end = total_rounds - round_id + 1
-    if from_end == 1:
-        return "决赛"
-    if from_end == 2:
-        return "半决赛"
-    if from_end == 3:
-        return "八强赛"
-    if from_end == 4:
-        return "十六强赛"
-    return f"第 {round_id} 轮"
-
-
-def _bracket_context(db: Session, competition: Competition) -> dict:
-    """组赛程图模板数据：轮次分列，每局含双方名字/比分/是否胜者。"""
-    match_rows = (
-        db.query(Match)
-        .filter(Match.competition_id == competition.id)
-        .order_by(Match.round_id, Match.id)
-        .all()
-    )
-    results = {m.id: (m.result or {}) for m in match_rows}
-    roster = _load_roster(
-        db, competition.id, (pid for m in match_rows for pid in (m.participant_a, m.participant_b))
-    )
-    rounds: dict[int, dict] = {}
-    for m in match_rows:
-        a = roster.get(m.participant_a)
-        b = roster.get(m.participant_b)
-        rounds.setdefault(m.round_id, {"round_id": m.round_id, "matches": []})
-        result = results[m.id]
-        rounds[m.round_id]["matches"].append(
-            {
-                "id": m.id,
-                "status": m.status,
-                "bye": m.participant_b is None,
-                "a_name": (a.name if a else None) or "待定",
-                "b_name": (b.name if b else None) if b is not None else "待定",
-                "a_score": result.get("score_a") if result else None,
-                "b_score": result.get("score_b") if result else None,
-                "a_win": bool(
-                    result
-                    and result.get("winner") is not None
-                    and m.participant_a is not None
-                    and result["winner"] == m.participant_a
-                ),
-                "b_win": bool(
-                    result
-                    and result.get("winner") is not None
-                    and m.participant_b is not None
-                    and result["winner"] == m.participant_b
-                ),
-            }
-        )
-    round_list = sorted(rounds.values(), key=lambda r: r["round_id"])
-    # 季军赛判定与前端 ScheduleChart.mainRounds 一致（仅单败淘汰引擎会生成）：
-    # 末轮单场且次末轮也单场时，末轮是季军赛（决赛败者赛），不计入主签表轮数。
-    third_place = None
-    if (
-        competition.tournament_format == "single_elim"
-        and len(round_list) >= 2
-        and len(round_list[-1]["matches"]) == 1
-        and len(round_list[-2]["matches"]) == 1
-    ):
-        third_place = round_list.pop()
-        third_place["title"] = "季军赛"
-    total_rounds = len(round_list)
-    for r in round_list:
-        r["title"] = _round_name(r["round_id"], total_rounds)
-    context = {
-        "competition": ScheduleCompetition.model_validate(competition),
-        "rounds": round_list,
-    }
-    if third_place is not None:
-        context["third_place"] = third_place
-    return context
-
-
-@router.get("/competitions/{competition_id}/bracket", response_class=HTMLResponse)
-def bracket_page(competition_id: int, request: Request, db: Session = Depends(get_db)):
-    """赛程图 HTML 页（公开只读）：照抄 tournament-organizer 的轮次分列布局。"""
-    competition = _get_competition_or_404(db, competition_id)
-    return _templates.TemplateResponse(
-        request,
-        "bracket.html",
-        {"context": _bracket_context(db, competition)},
-    )

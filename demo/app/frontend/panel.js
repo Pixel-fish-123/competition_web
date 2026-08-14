@@ -312,9 +312,13 @@ document.getElementById("l1-cancel-btn").addEventListener("click", () => {
 });
 
 document.getElementById("l1-confirm-btn").addEventListener("click", () => {
-  const score = parseInt(document.getElementById("l1-score").value);
-  const tp = parseFloat(document.getElementById("l1-tp").value);
-  if (isNaN(score)) { alert("请输入分数"); return; }
+  const scoreVal = document.getElementById("l1-score").value.trim();
+  const tpVal = document.getElementById("l1-tp").value.trim();
+  const score = parseInt(scoreVal);
+  const tp = parseFloat(tpVal);
+  if (scoreVal === "" || isNaN(score)) { alert("请输入分数"); return; }
+  if (score < 0 || score > 10000000) { alert("分数需在 0 ~ 10000000 之间"); return; }
+  if (tpVal !== "" && (isNaN(tp) || tp < 0 || tp > 100)) { alert("TP 需在 0 ~ 100 之间"); return; }
   const team = pendingL1 ? pendingL1.team : null;
   document.getElementById("l1-modal").classList.add("hidden");
   document.getElementById("l1-score").value = "";

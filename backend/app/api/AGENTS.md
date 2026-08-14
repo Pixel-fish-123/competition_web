@@ -23,6 +23,7 @@ FastAPI 路由层：11 个模块，全部端点在此声明，权限/审计/限�
 | matches | GET /api/competitions/{cid}/matches, /api/matches/{id} | get_current_user | 列表按 round_id,id 排序 |
 | matches | POST /api/matches/{id}/start, /result | require_referee + 本场 referee_ids | 轮空自动完结；`result` 带 `lock:true` 保存并锁定（锁定后 400 拒绝再改，issue 14）；写 `match_start/match_result` 审计 |
 | matches | POST /api/matches/{id}/randomize-sides | require_referee + 本场 referee_ids | 开赛前随机选边（issue 2）：等概率交换 participant_a/b；仅 pending 且双方已定对局；写 `match_randomize_sides` 审计 |
+| matches | POST /api/bot/matches/{id}/randomize-sides | `X-Bot-Token` == 配置的 `BOT_API_TOKEN`（未配置 503） | bot `.ts start` 开局前自动随机选边；与裁判版同规则但跳过 referee_ids 校验（令牌即信任）；写 `match_randomize_sides_bot` 审计 |
 | matches | POST /api/matches/{id}/gameplay-log | require_referee + 本场 referee_ids | 导入 demo 玩法日志（JSON/CSV）；?sync=true 预填 result；写 `match_gameplay_log_import` 审计 |
 | announcements | GET /api/announcements(/{id}) | 公开 | 公告列表（时间倒序）/ 详情（含附件元数据） |
 | announcements | GET /api/announcements/files/{stored_name} | get_current_user | 附件下载（uuid 磁盘名定位，防路径穿越） |

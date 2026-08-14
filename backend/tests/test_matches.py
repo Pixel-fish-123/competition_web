@@ -411,6 +411,76 @@ def test_randomize_sides_on_bye_match_returns_400(admin_client):
     assert resp.json()["detail"] == "对局双方尚未确定，无法随机选边"
 
 
+def test_bot_randomize_sides_requires_configured_token(admin_client):
+    """后端未配置 BOT_API_TOKEN 时机器人随机选边接口 503。"""
+    from app.config import settings
+
+    old = settings.BOT_API_TOKEN
+    settings.BOT_API_TOKEN = ""
+    try:
+        resp = admin_client.post(
+            "/api/bot/matches/1/randomize-sides",
+            headers={"X-Bot-Token": "whatever"},
+        )
+        assert resp.status_code == 503
+        assert resp.json()["detail"] == "后端未配置 BOT_API_TOKEN，机器人随机选边不可用"
+    finally:
+        settings.BOT_API_TOKEN = old
+
+
+def test_bot_randomize_sides_token_auth_and_swap(admin_client):
+    """机器人令牌鉴权 + 50% 交换：错误令牌 401，正确令牌保持配对并偶发交换。"""
+    from app.config import settings
+
+    old = settings.BOT_API_TOKEN
+    settings.BOT_API_TOKEN = "bot-secret"
+    try:
+        match_id, orig_a, orig_b, _ = _pending_two_player_match(admin_client)
+        url = f"/api/bot/matches/{match_id}/randomize-sides"
+
+        resp = admin_client.post(url, headers={"X-Bot-Token": "wrong"})
+        assert resp.status_code == 401
+        assert resp.json()["detail"] == "机器人令牌无效"
+
+        swapped_any = False
+        for _ in range(8):
+            resp = admin_client.post(url, headers={"X-Bot-Token": "bot-secret"})
+            assert resp.status_code == 200, resp.text
+            data = resp.json()
+            assert data["ok"] is True
+            match = data["match"]
+            # 双方 id 不变，只是顺序可能交换。
+            assert {match["participant_a"], match["participant_b"]} == {orig_a, orig_b}
+            assert match["participant_a"] != match["participant_b"]
+            if data["swapped"]:
+                swapped_any = True
+                break
+        assert swapped_any, "8 次随机选边应至少出现一次顺序交换（1/2^8 概率极小）"
+    finally:
+        settings.BOT_API_TOKEN = old
+
+
+def test_bot_randomize_sides_rejected_when_started(admin_client):
+    """机器人随机选边与裁判版一致：已开始的比赛 400。"""
+    from app.config import settings
+
+    old = settings.BOT_API_TOKEN
+    settings.BOT_API_TOKEN = "bot-secret"
+    try:
+        match_id, _, _, referee_token = _pending_two_player_match(admin_client)
+        url = f"/api/bot/matches/{match_id}/randomize-sides"
+        resp = admin_client.post(url, headers={"X-Bot-Token": "bot-secret"})
+        assert resp.status_code == 200, resp.text
+        # 开赛后随机选边必须失败。
+        _as_user(admin_client, referee_token)
+        assert admin_client.post(f"/api/matches/{match_id}/start", json={}).status_code == 200
+        resp = admin_client.post(url, headers={"X-Bot-Token": "bot-secret"})
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "仅未开始的比赛可以进行随机选边"
+    finally:
+        settings.BOT_API_TOKEN = old
+
+
 def test_result_lock_requires_round_complete(admin_client):
     """需求 4：lock=true 仅当本轮全部真实对局结束后才接受（中途锁定 400）。"""
     admin_token = admin_client.cookies.get("token")
@@ -602,15 +672,16 @@ def test_reset_round_refused_when_locked(admin_client):
     assert resp.json()["detail"] == "本轮已有锁定结果，无法重置"
 
 
-def test_list_matches_unauthenticated_returns_401(client):
+def test_list_matches_public_without_login(client):
+    """赛程列表公开只读：未登录也能查看（比赛详情页赛程图依赖它）。"""
     with SessionLocal() as db:
         comp = Competition(name="未认证比赛", status="ongoing", created_by=1)
         db.add(comp)
         db.commit()
         comp_id = comp.id
     resp = client.get(f"/api/competitions/{comp_id}/matches")
-    assert resp.status_code == 401
-    assert resp.json()["detail"] == "未登录或登录已失效"
+    assert resp.status_code == 200
+    assert resp.json() == []
 
 
 def test_get_match_detail_unknown_returns_404(admin_client):

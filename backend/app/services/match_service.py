@@ -394,22 +394,43 @@ def randomize_sides(
     match_id: int,
     referee: User,
 ) -> tuple[Match, bool]:
-    """开赛前随机选边（issue 2）：等概率交换对局双方的阵营。
+    """裁判开赛前随机选边（issue 2）：等概率交换对局双方的阵营。"""
+    match, competition = _get_match_and_competition(db, match_id)
+    _require_assigned_referee(competition, referee)
+    swapped = _validate_and_swap_sides(db, match)
+    return match, swapped
 
-    掠夺者=participant_a、守护者=participant_b。仅对双方已确定（均非 None）
-    且未开始（pending）的对局生效；交换仅影响展示与引擎分数对齐
-    （``_align_scores_to_engine`` 保证净胜分归属正确）。返回
-    (match, swapped) —— swapped 表示本次是否实际交换了顺序。
+
+def randomize_sides_bot(
+    db: Session,
+    match_id: int,
+) -> tuple[Match, bool]:
+    """机器人令牌触发随机选边：等价于裁判随机选边，但跳过 referee_ids 校验。
+
+    调用方（API 层）已用 BOT_API_TOKEN 验证机器人身份；令牌持有者即被信任。
+    其余规则与裁判版完全一致（仅 pending 且双方已定的对局、50% 交换）。
     """
+    match, _ = _get_match_and_competition(db, match_id)
+    swapped = _validate_and_swap_sides(db, match)
+    return match, swapped
+
+
+def _get_match_and_competition(db: Session, match_id: int) -> tuple[Match, Competition]:
     match = db.get(Match, match_id)
     if match is None:
         raise HTTPException(status_code=404, detail="对局不存在")
     competition = db.get(Competition, match.competition_id)
     if competition is None:
         raise HTTPException(status_code=404, detail="比赛不存在")
+    return match, competition
 
-    _require_assigned_referee(competition, referee)
 
+def _validate_and_swap_sides(db: Session, match: Match) -> bool:
+    """双方已定 + pending 校验，50% 概率交换 participant_a/b。
+
+    掠夺者=participant_a、守护者=participant_b。交换仅影响展示与引擎分数对齐
+    （``_align_scores_to_engine`` 保证净胜分归属正确）。返回是否实际交换。
+    """
     if match.participant_a is None or match.participant_b is None:
         raise HTTPException(status_code=400, detail="对局双方尚未确定，无法随机选边")
     if match.status != "pending":
@@ -423,7 +444,7 @@ def randomize_sides(
         )
         db.commit()
         db.refresh(match)
-    return match, swapped
+    return swapped
 
 
 def start_match(

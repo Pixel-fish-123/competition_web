@@ -214,11 +214,14 @@ window.fitPyramid = fitPyramid;
 setTimeout(fitPyramid, 100);
 setTimeout(fitPyramid, 400);
 
-window.renderBoard = renderBoard;
-window.setBoardState = (board) => {
-  boardState = board;
+window.renderBoard = () => {
   renderBoard();
   fitPyramid();
+};
+window.setBoardState = (board) => {
+  boardState = board;
+  // 渲染由 renderPanel 触发：先写入 window._l1Energy 再 renderBoard，
+  // 保证 L1 能量线首帧即用最新值（避免用默认值闪一帧）。
 };
 window.getSelectedTeam = () => selectedTeam;
 window.setSelectedTeam = (t) => { selectedTeam = t; };

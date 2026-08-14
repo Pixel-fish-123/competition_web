@@ -1,4 +1,4 @@
-"""QQ 字段（个人资料/管理端）与赛程只读接口 + 赛程图页面的测试。"""
+"""QQ 字段（个人资料/管理端）与赛程只读接口的测试。"""
 
 from datetime import datetime
 
@@ -159,9 +159,12 @@ def test_schedule_endpoints_return_names_and_qqs(admin_client, client):
         m = data["matches"][0]
         assert m["round_id"] == 1
         assert m["participant_a"]["type"] == "individual"
+        assert m["participant_a"]["id"] is not None
         assert m["participant_a"]["qqs"] == ["100000"]
         assert m["participant_a"]["name"] == "player_0"
         assert m["participant_b"]["qqs"] == ["100001"]
+        assert "result" in m
+        assert m["result"] is None
 
 
 def test_schedule_team_participant_returns_member_qqs(client):
@@ -262,104 +265,6 @@ def test_schedule_team_participant_returns_member_qqs(client):
     assert sorted(m["participant_a"]["qqs"]) == ["111111", "222222"]
     assert m["participant_b"]["type"] == "individual"
     assert m["participant_b"]["qqs"] == ["333333"]
-
-
-# ------------------------------------------------------------ 赛程图页面
-
-
-def test_bracket_page_renders_html(client):
-    with SessionLocal() as db:
-        admin = User(
-            username="bracket_admin",
-            email="bracket_admin@example.com",
-            password_hash="x",
-            role="admin",
-            status="active",
-        )
-        db.add(admin)
-        db.commit()
-        db.refresh(admin)
-        alice = User(
-            username="alice",
-            email="alice@example.com",
-            password_hash="x",
-            qq="100001",
-            role="player",
-            status="active",
-        )
-        bob = User(
-            username="bob",
-            email="bob@example.com",
-            password_hash="x",
-            qq="100002",
-            role="player",
-            status="active",
-        )
-        db.add_all([alice, bob])
-        db.commit()
-        comp = Competition(
-            name="签表测试",
-            participant_type="individual",
-            tournament_format="single_elim",
-            status="ongoing",
-            created_by=admin.id,
-        )
-        db.add(comp)
-        db.commit()
-        db.refresh(comp)
-        comp_id = comp.id
-        db.add_all(
-            [
-                Registration(
-                    competition_id=comp.id,
-                    participant_type="individual",
-                    user_id=alice.id,
-                    status="approved",
-                ),
-                Registration(
-                    competition_id=comp.id,
-                    participant_type="individual",
-                    user_id=bob.id,
-                    status="approved",
-                ),
-            ]
-        )
-        db.add(
-            Match(
-                competition_id=comp.id,
-                round_id=1,
-                engine_match_id=1,
-                participant_a=alice.id,
-                participant_b=bob.id,
-                status="pending",
-                result={"winner": None, "is_draw": False, "score_a": None, "score_b": None},
-            )
-        )
-        db.commit()
-
-    resp = client.get(f"/competitions/{comp_id}/bracket")
-    assert resp.status_code == 200, resp.text
-    assert "签表测试" in resp.text
-    assert "alice" in resp.text
-    assert "bob" in resp.text
-    assert "待开始" in resp.text
-
-
-def test_bracket_four_player_single_elim_round_titles(admin_client, client):
-    """4 人单败淘汰：末轮单场 + 次末轮单场 → 末轮应为季军赛，决赛标题不偏移。"""
-    admin_token = admin_client.cookies.get("token")
-    comp_id = _create_ok(admin_client, tournament_format="single_elim")
-    assert _transition(admin_client, comp_id, "registration").status_code == 200
-    _seed_players_and_approve(client, admin_token, comp_id, 4)
-    assert _transition(admin_client, comp_id, "ongoing").status_code == 200
-
-    resp = client.get(f"/competitions/{comp_id}/bracket")
-    assert resp.status_code == 200, resp.text
-    text = resp.text
-    assert "决赛" in text
-    assert "季军赛" in text
-    # 4 人签表没有半决赛轮；旧实现会把决赛误标成半决赛。
-    assert "半决赛" not in text
 
 
 def test_schedule_ambiguous_id_prefers_team(client):

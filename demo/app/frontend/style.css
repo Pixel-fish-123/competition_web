@@ -58,13 +58,6 @@ html, body {
   color: var(--text);
   line-height: 1;
 }
-.brand-sub {
-  font-family: "IBM Plex Mono", "ScreenCJK", monospace;
-  font-size: 11px;
-  letter-spacing: 2px;
-  color: var(--gold);
-  text-transform: uppercase;
-}
 
 .controls { display: flex; align-items: center; gap: 10px; }
 .team-select { display: flex; gap: 6px; }
@@ -401,7 +394,6 @@ aside, section { padding: 16px 18px; overflow: hidden; min-height: 0; }
   line-height: 1.6;
   color: var(--text-dim);
 }
-.info-detail .info-val { font-size: 12px; }
 
 .legend { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); }
 .lg-row {

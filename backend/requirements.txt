@@ -9,4 +9,3 @@ slowapi
 httpx
 pytest
 python-multipart
-jinja2

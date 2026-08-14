@@ -46,9 +46,10 @@ python app/main/main.py --headless
 ```bash
 python -m pip install -r requirements-dev.txt   # 首次：安装 pytest（仅开发依赖）
 python -m pytest tests -q                        # 玩法测试全绿
+python -c "import sys; sys.path.insert(0, 'app'); from controller.task_gen import generate_tasks; from controller.game import GameController; g=GameController(); g.init(generate_tasks(42)); print('ok', len(g.cells))"
 python -c "import sys; sys.path.insert(0, 'app'); import json; from controller.song_lib import parse_song_library; d=json.load(open('test_songs.json',encoding='utf-8')); print('songs', len(parse_song_library(d)))"
 ```
 
 歌曲库 API 冒烟顺序是 `POST /api/songs` 后再 `POST /api/init`；未导入歌曲库会返回 400。需要分发时运行 `pyinstaller app/packaging/build.spec --workpath app/packaging/build --distpath app/packaging/dist`，不要把 `app/packaging/build/`、`app/packaging/dist/`、`__pycache__/` 或 `app/exports/` 当作源码修改。
 
-详细算法、API 和玩法说明见 `app/docs/plan.md`；面向选手/裁判的规则见 `app/docs/规则总结.md`。
+详细算法、API 和玩法说明见 `app/docs/plan.md`；开发计划见 `app/docs/plans/`。

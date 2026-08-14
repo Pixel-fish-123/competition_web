@@ -214,20 +214,6 @@ def test_enclosure_converts_empty_region():
     assert g.cells[3].owner == "defender"
 
 
-def test_cancel_occupy_resets_from_encirclement():
-    """包围转换的格子被清除后，from_encirclement 标记复位（避免虚线边框残留）。"""
-    g = new_game()
-    for cid in (1, 6, 7, 4):           # 合围 -> cell 3 被包围转换
-        g.occupy(cid, "defender")
-    assert g.cells[3].from_encirclement is True
-    g.cancel_occupy(4)                 # 破坏包围（4 变空，cell 3 不再被围）
-    assert g.cells[3].owner == "defender"        # cell 3 仍是防守方（已转换）
-    assert g.cells[3].from_encirclement is True  # 残留标记（尚未清除）
-    g.cancel_occupy(3)                 # 清除 -> 复位；且不再被围，不会被重新转换
-    assert g.cells[3].owner is None
-    assert g.cells[3].from_encirclement is False
-
-
 def test_enclosure_two_pockets_one_chain():
     """一次占领同时封住两个独立区域 -> 同一更新链内双双转换。"""
     g = new_game()

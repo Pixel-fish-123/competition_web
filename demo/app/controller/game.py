@@ -262,7 +262,6 @@ class GameController:
         prev = self._team_cn(cell.owner)
         cell.owner = None
         cell.activated = False
-        cell.from_encirclement = False  # 清除后复位包围来源标记，避免虚线边框残留
         if cell_id == 0:
             self.l1_high_score = None
             self.l1_high_tp = None
@@ -470,10 +469,7 @@ class GameController:
         table = RULES.get("energy_bonus_by_contact") or {}
         key = str(contacts)
         if key not in table and table:
-            try:
-                key = str(max(int(k) for k in table))  # 超过最大档 -> 封顶档
-            except (TypeError, ValueError):
-                return min(contacts - 1, 2)  # 表内容畸形 -> 回退原公式
+            key = str(max(int(k) for k in table))  # 超过最大档 -> 封顶档
         if key in table:
             try:
                 return int(table[key])

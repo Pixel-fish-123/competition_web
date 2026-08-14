@@ -108,7 +108,7 @@ def _weighted_choice(table, rng: random.Random):
     return table[-1]
 
 
-# Region definitions: fixed capacity per region（烈度分区）。
+# Region definitions: fixed capacity per region（烈度分区，任务与难度设计 v1）。
 # - top    = L1（id 0，能量引擎，最后单独填充：剩余 3 首中最难 +10）
 # - l2     = L2（id 1-2）：低分区（一定较低）
 # - mid    = L3+L4（id 3-9）：烈度最高区（承载高难任务）
@@ -148,7 +148,7 @@ def generate_tasks_from_songs(songs: list[Song], seed=None,
                               return_template: bool = False):
     """Generate 21 cells_data from a song library via the templated pipeline.
 
-    流水线：
+    流水线（任务与难度设计 v1）：
     1. 从歌曲库随机抽 25 首；
     2. 按定数删去最难与最简各 1 首 -> 23 首；
     3. 从 23 首中抽 20 首，按任务表权重随机分配任务；

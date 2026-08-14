@@ -76,6 +76,8 @@
 - 默认限时 25 分钟：`game.py:9`（`TIME_LIMIT_MINUTES`）。
 - 计时：`game.py:64-71`（`elapsed` / `_sync_elapsed`）；超时：`game.py:73-78`（`_check_timeout`）。
 - 设置限时：`routes.py:227-233`（`POST /api/time_limit`，须正数）；心跳：`routes.py:236-243`（`GET /api/tick`）。
+- 暂停计时：`game.py`（`pause` / `resume` / `toggle_pause`，暂停冻结 `elapsed` 与 L1 能量积累，恢复时扣除暂停时长）；接口：`routes.py`（`POST /api/pause`，toggle，`state.paused` / tick 均暴露暂停态）。
+- 退出工具：`routes.py`（`POST /api/exit`）——后台任务 `os._exit(0)` 直接结束控制器进程（与 auto-exit watchdog 同机制，dev / 打包 exe 均可用）。
 
 ### H. 歌曲 / 难度规则
 - 歌曲难度分（10 分制，Cytus II 2026 难度表）：`song_lib.py:25-62`（`level_to_score(level, type)`）。

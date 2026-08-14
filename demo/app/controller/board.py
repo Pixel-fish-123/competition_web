@@ -130,28 +130,3 @@ def build_cells(cells_data: list[dict] | None = None) -> list[Cell]:
                 neighbors=_compute_neighbors(cell_id),
             ))
     return cells
-
-
-def cell_positions(width: float, height: float) -> dict[int, tuple[float, float]]:
-    """Compute (x, y) center positions for rendering the triangle grid."""
-    positions: dict[int, tuple[float, float]] = {}
-    margin_x = width * 0.08
-    margin_y = height * 0.06
-    usable_w = width - 2 * margin_x
-    usable_h = height - 2 * margin_y
-    dx = usable_w / 6.0
-    dy = usable_h / 7.0
-    cx = width / 2.0
-
-    for cell_id in range(21):
-        layer, idx = _get_layer_and_index(cell_id)
-        x = cx + (idx - (layer - 1) / 2.0) * dx
-        y = margin_y + (layer - 1) * dy
-        positions[cell_id] = (x, y)
-
-    for i in range(6):
-        x = cx + (i - 2.5) * dx
-        y = margin_y + 6 * dy
-        positions[21 + i] = (x, y)
-
-    return positions

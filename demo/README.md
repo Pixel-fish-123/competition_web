@@ -86,7 +86,7 @@ demo/
     ├── config/rules.json      # 难度映射、16 项任务表、3 模板权重、能源加成表
     ├── api/routes.py          # REST + WebSocket + 成绩上传协议 v1
     ├── frontend/              # 原生静态页面（棋盘/面板/事件/WS）
-    └── docs/                  # plan.md、成绩上传协议.md、plans/
+    └── docs/                  # plan.md、structure.md、规则总结.md、成绩上传协议.md
 ```
 
 ## 验证
@@ -117,5 +117,5 @@ pyinstaller app/packaging/build.spec --workpath app/packaging/build --distpath a
 
 - 代码结构与规则映射（规则→实现位置索引）：`app/docs/structure.md`
 - 完整算法与玩法：`app/docs/plan.md`
+- 面向选手/裁判的比赛规则：`app/docs/规则总结.md`
 - 成绩上传协议 v1：`app/docs/成绩上传协议.md`
-- 开发计划：`app/docs/plans/`

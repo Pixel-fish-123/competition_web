@@ -52,4 +52,4 @@ python -c "import sys; sys.path.insert(0, 'app'); import json; from controller.s
 
 歌曲库 API 冒烟顺序是 `POST /api/songs` 后再 `POST /api/init`；未导入歌曲库会返回 400。需要分发时运行 `pyinstaller app/packaging/build.spec --workpath app/packaging/build --distpath app/packaging/dist`，不要把 `app/packaging/build/`、`app/packaging/dist/`、`__pycache__/` 或 `app/exports/` 当作源码修改。
 
-详细算法、API 和玩法说明见 `app/docs/plan.md`；开发计划见 `app/docs/plans/`。
+详细算法、API 和玩法说明见 `app/docs/plan.md`；面向选手/裁判的规则见 `app/docs/规则总结.md`。

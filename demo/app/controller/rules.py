@@ -58,7 +58,15 @@ def load_rules() -> dict:
         if not isinstance(data, dict) or "tasks" not in data or "templates" not in data:
             raise ValueError("missing required keys: tasks, templates")
         merged = dict(_DEFAULT_RULES)
-        merged.update({k: v for k, v in data.items() if v is not None})
+        for k, v in data.items():
+            if v is None:
+                continue
+            if isinstance(v, dict) and isinstance(merged.get(k), dict):
+                # 嵌套 dict 深合并一层：文件提供部分键时覆盖、缺省键由默认补齐
+                # （避免如 difficulty_score 只写 {"13":7} 时整表被替换丢失其余档位）
+                merged[k] = {**merged[k], **v}
+            else:
+                merged[k] = v
         return merged
     except (OSError, json.JSONDecodeError, ValueError) as exc:
         logger.warning("Failed to load rules from %s (%s); using built-in defaults", _RULES_PATH, exc)

@@ -32,7 +32,6 @@ demo/
 │   ├── controller/            # 纯 Python 游戏核心（无第三方依赖）
 │   ├── board.py               # Cell 数据结构、27 格硬编码邻接表、地图构建、歌曲元数据透传
 │   ├── game.py                # GameController：激活/包围/计分/胜利算法 + 时间限制
-│   ├── task_gen.py            # 无歌曲库回退的任务生成（任务表从 rules 加载，含 MM）
 │   ├── song_lib.py            # 歌曲库核心：Song 结构、JSON 校验、level→分值映射、23→21 模板流水线
 │   └── rules.py               # 规则加载器（读 config/rules.json，缺失回退内置默认 + warning）
 │   ├── config/
@@ -442,10 +441,6 @@ POST /api/songs 导入歌曲库（≥25 首，歌名唯一）→ POST /api/init
 - 烈度效果：高分任务先落 mid（L3+L4 烈度最高）；L2/L6 低权重承接剩余低分任务（一定较低）
 - L1（id=0）固定 `task_bonus=10`、`task_name="L1源头 (固定+10)"`，歌曲为剩余 3 首中最难
 
-### 8.5 无歌曲库回退
-
-`generate_tasks(seed)` 保留：按 10 分制 8 档等概率随机生成难度标签 + 权重任务，保证一局仅一首顶分（10 分）。仅用于无歌曲库场景的兼容验证，正式开局必须走歌曲库流水线。
-
 ## 九、棋盘模板（烈度分区，固定中腹高分模板）
 
 > 固定采用**中间分数高的模板（C 中腹对峙，mid=high）**，不再随机三模板。
@@ -546,8 +541,6 @@ python app/main/main.py
 快速验证：
 
 ```bash
-python -c "from controller.task_gen import generate_tasks; from controller.game import GameController; g=GameController(); g.init(generate_tasks(42)); print('ok', len(g.cells))"
-
 python -c "import json; from controller.song_lib import parse_song_library; d=json.load(open('test_songs.json',encoding='utf-8')); s=parse_song_library(d); print('songs', len(s))"
 ```
 

@@ -137,22 +137,9 @@ def build_report(results, cfg: BalanceConfig, games: int, seed: int) -> str:
     add(f"| **攻击方 L1 能量胜利** | {l1_wins} | {_fmt_rate(l1_wins, n)} |")
     add("")
 
-    add("### 2.1 模板分组胜率（A/B/C，95% 置信区间）")
+    add("### 2.1 模板（固定 C 中腹对峙）")
     add("")
-    add("| 模板 | 局数 | 防守胜 | 攻击胜 | 平局 | L1 能量胜利 |")
-    add("|---|---|---|---|---|---|")
-    for tmpl in ("A", "B", "C"):
-        group = [r for r in results if r.template == tmpl]
-        m = len(group)
-        if m == 0:
-            add(f"| {tmpl} | 0 | - | - | - | - |")
-            continue
-        d = sum(1 for r in group if r.winner == "defender")
-        a = sum(1 for r in group if r.winner == "attacker")
-        dr = sum(1 for r in group if r.winner == "draw")
-        tp = sum(1 for r in group if r.win_type == "l1_energy")
-        add(f"| {tmpl} | {m} | {_fmt_rate(d, m)} | {_fmt_rate(a, m)} | "
-            f"{dr / m * 100:.1f}% | {tp / m * 100:.1f}% |")
+    add("任务流水线固定采用模板 C（中腹高分），不再按 A/B/C 随机分组，故不拆分模板胜率。")
     add("")
 
     add("### 2.2 包围与 L1 能量统计")

@@ -46,7 +46,6 @@ python app/main/main.py --headless
 ```bash
 python -m pip install -r requirements-dev.txt   # 首次：安装 pytest（仅开发依赖）
 python -m pytest tests -q                        # 玩法测试全绿
-python -c "import sys; sys.path.insert(0, 'app'); from controller.task_gen import generate_tasks; from controller.game import GameController; g=GameController(); g.init(generate_tasks(42)); print('ok', len(g.cells))"
 python -c "import sys; sys.path.insert(0, 'app'); import json; from controller.song_lib import parse_song_library; d=json.load(open('test_songs.json',encoding='utf-8')); print('songs', len(parse_song_library(d)))"
 ```
 

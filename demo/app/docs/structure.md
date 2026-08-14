@@ -14,15 +14,14 @@
 | `controller/board.py` | Cell 结构、27 格邻接、地图构建 | A 棋盘结构 |
 | `controller/game.py` | 占领/激活/包围/计分/胜利/时间 全流程 | B/C/D/E/F/G/L |
 | `controller/song_lib.py` | 歌曲校验、level→分值、23→21 任务分配 | H/I |
-| `controller/task_gen.py` | 无歌曲库时的回退任务生成 | I |
 | `controller/rules.py` | 规则数据加载（含内置默认回退） | J |
-| `config/rules.json` | 难度映射 / 任务表 / 模板权重 / 歌曲难度权重（数据源） | J |
+| `config/rules.json` | 难度映射 / 任务表 / 模板权重 / 能源加成表（数据源） | J |
 | `api/routes.py` | REST/WS + 成绩上传协议 v1 的校验规则 | K |
 | `main/main.py` | 入口：端口选择、浏览器、自动退出 | —（基础设施） |
 | `frontend/*` | 棋盘渲染与人工操作 UI | —（展示层） |
-| `tests/` | pytest 玩法正确性测试（test_board/test_game/test_song_lib/test_rules/test_task_gen） | 全部规则域（验证） |
+| `tests/` | pytest 玩法正确性测试（test_board/test_game/test_song_lib/test_rules + balance 模拟） | 全部规则域（验证） |
 
-**结论**：规则逻辑集中分布在 `game.py`（运行时规则）与 `song_lib.py`/`task_gen.py`（生成期规则）
+**结论**：规则逻辑集中分布在 `game.py`（运行时规则）与 `song_lib.py`（生成期规则）
 两处；`rules.json` 是唯一的外部数据源；`routes.py` 额外承载上传协议的「严格任务校验」。
 
 ---
@@ -94,7 +93,6 @@
   4. L1 最后填充：剩余 3 首中定数最高一首，固定 `task_bonus=10`、`task_name="L1源头 (固定+10)"`。
 - 区域定义（烈度分区）：`song_lib.py:108-125`（`_REGIONS` / `_ALLO_CAP` / `_FIXED_TEMPLATE`）。
   - `l2={1,2}` 低分、`mid={3..9}` 烈度最高、`shallow={10..14}` 次低、`energy={15..20}` 低分（L6）。
-- 无歌曲库回退：`task_gen.py:38-79`（`generate_tasks`）——10 分制 8 档难度分层、顶层难度唯一化（仅一首 10 分）、L1 固定 +10。
 
 ### J. 规则数据源
 - 外部数据：`config/rules.json`——难度映射（`difficulty_score`，存档参考）、16 项任务表（`tasks`，含 weight/bonus）、3 模板（`templates`）、**能源加成表（`energy_bonus_by_contact`，接触能源数→每格加成，超档封顶）**。

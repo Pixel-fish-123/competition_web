@@ -40,13 +40,7 @@ python app/main/main.py
 
 随机开局前必须先导入歌曲库：至少 **25 首且歌名唯一**。接口顺序固定为 `POST /api/songs` 导入，再 `POST /api/init` 开局；未导入歌曲库时 `init` 返回 400。
 
-可用工具生成测试歌曲库（覆盖 8 档难度、50 首不重名）：
-
-```bash
-python app/tools/gen_test_songs.py --count 50 --seed 1
-```
-
-在页面点击「导入歌曲库」粘贴生成的 JSON（或根目录 `test_songs.json`），再「随机开局」。
+在页面点击「导入歌曲库」粘贴 `test_songs.json` 的内容（仓库根目录内置的静态样例歌曲库），再「随机开局」。
 
 ## 两种操作方式
 
@@ -89,10 +83,9 @@ demo/
     │   ├── song_lib.py        # 歌曲校验、level→分值、23→21 模板流水线
     │   ├── task_gen.py        # 无歌曲库回退的任务生成
     │   └── rules.py           # 规则加载（config/rules.json，缺失回退内置默认）
-    ├── config/rules.json      # 难度映射、16 项任务表、3 模板权重
+    ├── config/rules.json      # 难度映射、16 项任务表、3 模板权重、能源加成表
     ├── api/routes.py          # REST + WebSocket + 成绩上传协议 v1
     ├── frontend/              # 原生静态页面（棋盘/面板/事件/WS）
-    ├── tools/gen_test_songs.py# 随机测试歌曲生成器
     └── docs/                  # plan.md、成绩上传协议.md、plans/
 ```
 
@@ -104,7 +97,6 @@ demo/
 python -m pip install -r requirements-dev.txt   # 首次：安装 pytest（仅开发依赖）
 python -m pytest tests -q                        # 玩法测试（含新包围/激活/计分/L1/流水线）
 python -c "import sys; sys.path.insert(0, 'app'); from controller.task_gen import generate_tasks; from controller.game import GameController; g=GameController(); g.init(generate_tasks(42)); print('ok', len(g.cells))"
-python app/tools/gen_test_songs.py --seed 1
 python -c "import sys; sys.path.insert(0, 'app'); import json; from controller.song_lib import parse_song_library; d=json.load(open('test_songs.json',encoding='utf-8')); print('songs', len(parse_song_library(d)))"
 ```
 

@@ -11,3 +11,4 @@ app/packaging/build/
 app/packaging/dist/
 app/packaging/dist.zip
 app/.opencode/node_modules/
+.pytest_tmp/

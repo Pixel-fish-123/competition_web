@@ -25,8 +25,9 @@ class Song:
 def level_to_score(level: str, song_type: str = "") -> int:
     """Map a difficulty level to a 10-scale song score (Cytus II 2026 难度表).
 
-    歌曲难度部分占单格总分 50%（0~10 分制）。数值为主，Chaos/Glitch 在 13/14 档
-    体感更难、各 +1（与社区体感一致）；15+ / 16 / 16+ 封顶 10 分。
+    歌曲难度部分占单格总分 50%（0~10 分制）。纯数值制：13 → 7、14 → 8；
+    带 `+` 的定数在原等级基础上 +1（封顶 10）；16 及以上封顶 10。
+    `song_type` 参数仅为兼容旧调用保留，**不影响分值**。
     """
     if not isinstance(level, str) or not level.strip():
         raise ValueError(f"level 无效：{level!r}")
@@ -37,24 +38,26 @@ def level_to_score(level: str, song_type: str = "") -> int:
         raise ValueError(f"level 无效：{level!r}")
     n = int(match.group())
     if n <= 3:
-        return 1
-    if n <= 6:
-        return 2
-    if n <= 8:
-        return 3
-    if n <= 10:
-        return 4
-    if n == 11:
-        return 5
-    if n == 12:
-        return 6
-    if n == 13:
-        return 7 if song_type in ("Chaos", "Glitch") else 6
-    if n == 14:
-        return 8 if song_type in ("Chaos", "Glitch") else 7
-    if n == 15:
-        return 10 if has_plus else 9
-    return 10  # >= 16（含 16+/15+ 顶分档）
+        base = 1
+    elif n <= 6:
+        base = 2
+    elif n <= 8:
+        base = 3
+    elif n <= 10:
+        base = 4
+    elif n == 11:
+        base = 5
+    elif n == 12:
+        base = 6
+    elif n == 13:
+        base = 7
+    elif n == 14:
+        base = 8
+    elif n == 15:
+        base = 9
+    else:
+        return 10  # >= 16 封顶
+    return min(base + (1 if has_plus else 0), 10)
 
 
 def parse_song_library(data) -> list[Song]:

@@ -60,7 +60,7 @@ def _fmt_rate(k: int, n: int) -> str:
 def load_songs(root: Path) -> list:
     path = root / "test_songs.json"
     if not path.exists():
-        sys.exit(f"[错误] 缺少歌曲库 {path}，请先运行：python app/tools/gen_test_songs.py --seed 1")
+        sys.exit(f"[错误] 缺少歌曲库 {path}（仓库已内置 test_songs.json，请勿删除）")
     with open(path, encoding="utf-8") as f:
         return parse_song_library(json.load(f))
 

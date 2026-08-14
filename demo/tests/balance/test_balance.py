@@ -20,7 +20,7 @@ _ROOT = Path(__file__).resolve().parent.parent.parent
 def songs():
     path = _ROOT / "test_songs.json"
     if not path.exists():
-        pytest.skip("缺少 test_songs.json，先运行 python app/tools/gen_test_songs.py --seed 1")
+        pytest.skip("缺少 test_songs.json（仓库已内置，请勿删除）")
     with open(path, encoding="utf-8") as f:
         return parse_song_library(json.load(f))
 

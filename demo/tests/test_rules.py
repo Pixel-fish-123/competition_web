@@ -16,12 +16,15 @@ def test_default_rules_shape():
     assert d["tasks"][0]["name"] == "达成MM"
     assert d["tasks"][0]["bonus"] == 10
     assert set(d["templates"].keys()) == {"A", "B", "C"}
-    assert set(d["song_level_weights"].keys()) == {
-        "15+", "16", "16+", "15", "14+", "14", "13+", "13",
-        "12+", "12", "11+", "11", "10", "10+", "9+", "9", "8",
-    }
     # 能源加成表：接触 1/2/3/≥4 个能源 -> +0/+1/+2/+2（封顶）
     assert d["energy_bonus_by_contact"] == {"1": 0, "2": 1, "3": 2, "4": 2}
+    # 难度档（存档参考）：13→7、14→8，加号档 +1（封顶 10）
+    assert d["difficulty_score"]["13"] == 7
+    assert d["difficulty_score"]["13+"] == 8
+    assert d["difficulty_score"]["14"] == 8
+    assert d["difficulty_score"]["14+"] == 9
+    assert d["difficulty_score"]["15"] == 9
+    assert d["difficulty_score"]["15+"] == 10
 
 
 def test_load_rules_matches_file(monkeypatch, tmp_path):
@@ -29,7 +32,7 @@ def test_load_rules_matches_file(monkeypatch, tmp_path):
     rules = rules_mod.load_rules()
     assert len(rules["tasks"]) == 16
     assert len(rules["templates"]) == 3
-    assert len(rules["song_level_weights"]) == 17
+    assert "song_level_weights" not in rules  # 工具已移除，配置不再含该键
 
 
 def test_load_rules_missing_file_falls_back(monkeypatch, tmp_path):
@@ -60,7 +63,7 @@ def test_file_and_default_in_sync():
     """rules.py 内置默认与 config/rules.json 必须保持一致（H 类硬约束）。"""
     with open(rules_mod._RULES_PATH, encoding="utf-8") as f:
         file_data = json.load(f)
-    for key in ("tasks", "templates", "song_level_weights"):
+    for key in ("tasks", "templates", "difficulty_score", "energy_bonus_by_contact"):
         assert file_data[key] == rules_mod._DEFAULT_RULES[key], key
 
 

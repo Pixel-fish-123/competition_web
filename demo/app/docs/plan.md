@@ -39,8 +39,6 @@ demo/
 │   │   └── rules.json         # 规则外置：难度映射、16 项任务表、3 模板区域权重
 │   ├── api/
 │   │   └── routes.py          # REST + WebSocket，全局单例 game；POST/GET /api/songs
-│   ├── tools/
-│   │   └── gen_test_songs.py  # 随机测试歌曲生成器（50 首不重名、8 档全覆盖）
 │   └── frontend/
     ├── index.html
     ├── style.css              # 黑金配色、The Arena 风格
@@ -405,22 +403,23 @@ function check_l1_energy():
 
 ### 8.2 level → 歌曲难度分（10 分制，Cytus II 2026 难度表）
 
-> 歌曲难度部分占单格总分 50%（0~10 分）。数值为主，**Chaos/Glitch 在 13/14 档比 Hard 更难（+1）**；
+> 歌曲难度部分占单格总分 50%（0~10 分）。**纯数值制**：13 → 7、14 → 8、15 → 9；
+> 带 `+` 的定数在原等级基础上 +1（封顶 10）；16 及以上封顶 10；**类型（Chaos/Glitch/Hard）不影响分值**。
 > 实现为 `song_lib.level_to_score(level, type)`。
 > `config/rules.json` 的 `difficulty_score` 键为**存档参考**，实际判定走 `level_to_score`（勿直接读配置）。
 
 | Cytus II 难度 | 歌曲分 |
 |-------|-----------|
-| Easy 1~3 | 1 |
-| Easy 4~6 | 2 |
-| Easy 7 / Hard 8 | 3 |
-| Hard 9~10 | 4 |
-| Hard 11 | 5 |
-| Hard 12 / Chaos 12 | 6 |
-| Hard 13 / Chaos·Glitch 13 | 6 / **7** |
-| Hard 14 / Chaos·Glitch 14 | 7 / **8** |
-| Hard 15 / Chaos 15 | 9 |
-| Glitch 15+ / 15+ / 16 / 16+ | **10** |
+| 1~3 | 1 |
+| 4~6 | 2 |
+| 7~8 | 3 |
+| 9~10 | 4 |
+| 11 / 11+ | 5 / **6** |
+| 12 / 12+ | 6 / **7** |
+| 13 / 13+ | **7 / 8** |
+| 14 / 14+ | **8 / 9** |
+| 15 / 15+ | 9 / **10** |
+| 16 / 16+ | 10（封顶） |
 
 ### 8.3 任务分布（按 `rules.json` 权重与 10 分制任务分，16 项）
 
@@ -554,7 +553,6 @@ python app/main/main.py
 
 # 或双击脚本
 启动服务.bat      # 启动 + 自动开浏览器
-抽取歌曲.bat      # 生成测试歌曲库
 ```
 
 快速验证：
@@ -562,7 +560,6 @@ python app/main/main.py
 ```bash
 python -c "from controller.task_gen import generate_tasks; from controller.game import GameController; g=GameController(); g.init(generate_tasks(42)); print('ok', len(g.cells))"
 
-python app/tools/gen_test_songs.py --seed 1
 python -c "import json; from controller.song_lib import parse_song_library; d=json.load(open('test_songs.json',encoding='utf-8')); s=parse_song_library(d); print('songs', len(s))"
 ```
 
@@ -757,18 +754,20 @@ python app/main/main.py
 
 ## 二十二、难度与分值速查
 
-### 歌曲难度分
+### 歌曲难度分（10 分制，纯数值制）
 
-| 歌曲难度 | 得分 |
-|---------|------|
-| CHAOS/Glitch 15+ 及以上（含 16/16+…） | 15 |
-| CHAOS/Glitch 15 | 10 |
-| CHAOS/Glitch 14-14+ | 8 |
-| CHAOS/Glitch 13-13+ | 6 |
-| CHAOS/Glitch 12-12+ | 5 |
-| CHAOS/Glitch 11-11+ | 4 |
-| CHAOS 9-10+ | 3 |
-| 低于 9 | 2 |
+| 歌曲定数 | 得分 | 歌曲定数 | 得分 |
+|---------|------|---------|------|
+| ≤3 | 1 | 13 | 7 |
+| 4 ~ 6 | 2 | 13+ | 8 |
+| 7 ~ 8 | 3 | 14 | 8 |
+| 9 ~ 10 | 4 | 14+ | 9 |
+| 11 | 5 | 15 | 9 |
+| 11+ | 6 | 15+ | 10 |
+| 12 | 6 | 16 / 16+ | 10（封顶） |
+| 12+ | 7 | | |
+
+- 类型（Chaos/Glitch/Hard）不影响分值。
 
 ### 单格总分速查
 
@@ -796,14 +795,14 @@ python app/main/main.py
 | 策略 | 思路 | 适用场景 |
 |------|------|---------|
 | **能源路线** | 优先占 L6 连通能源，再向上扩展连通块，吃能源加成 | 通用稳健 |
-| **冲顶直胜** | 建立 L6→L5→...→L1 的完整连通路径，激活 L1 直接获胜 | 对方防守松散时 |
-| **混合战术** | 先建 2 个能源基础，再尝试冲顶，被堵则转能源 | 灵活应对 |
+| **L1 牵制** | 夺取 L1 积累能量（每 2 分钟 +1），迫使防守方反复争夺、无暇扩张 | 对方防守松散时 |
+| **混合战术** | 先建 2 个能源基础，再尝试冲 L1/中腹，被堵则转能源 | 灵活应对 |
 | **占地压制** | 占领不连通的格子（不计分但占地），阻止防守方扩张 | 战术性封锁 |
 
 ### 关键提醒
 
 - **能源加成是攻击方的核心优势**：一个接触 4 能源的连通块，每格多 +2 分，累积可观。
-- **L1 能量胜利是终局手段**：攻击方占住 L1 满 12 分钟（或多次夺回）即获胜，防守方必须持续争夺 L1。
+- **L1 能量胜利是终局手段**：攻击方占住 L1 后连续持有满 18 分钟（或多次夺回积累）即获胜，防守方必须持续争夺 L1。
 - **包围是防守方的核武器**：一次成功的包围能让攻击方大片区域失效。
 - **时间管理至关重要**：25 分钟限时，高难度格子耗时更长，需权衡分数效率。
 

@@ -11,7 +11,7 @@ _RULES_PATH = Path(__file__).resolve().parent.parent / "config" / "rules.json"
 _DEFAULT_RULES: dict = {
     "difficulty_score": {
         "1": 1, "4": 2, "7": 3, "9": 4, "11": 5,
-        "12": 6, "13": 6, "14": 7, "15": 9, "15+": 10,
+        "12": 6, "13": 7, "13+": 8, "14": 8, "14+": 9, "15": 9, "15+": 10,
     },
     "tasks": [
         {"name": "达成MM", "weight": 2, "bonus": 10},
@@ -36,14 +36,6 @@ _DEFAULT_RULES: dict = {
         "B": {"top": "medium", "l2": "low", "mid": "high", "shallow": "medium", "energy": "low"},
         "C": {"top": "medium", "l2": "low", "mid": "high", "shallow": "low", "energy": "low"},
     },
-    # 测试歌曲生成器的难度权重池（level -> 出现权重），移入配置便于后续调整。
-    "song_level_weights": {
-        "15+": 1, "16": 1, "16+": 1,
-        "15": 2, "14+": 2, "14": 2,
-        "13+": 3, "13": 3, "12+": 3, "12": 3,
-        "11+": 2, "11": 2, "10": 2, "10+": 2,
-        "9+": 2, "9": 2, "8": 2,
-    },
     # 能源加成表（连通块接触能源数 -> 每格加成），键为接触数，超过最大键取最大键值（封顶）。
     "energy_bonus_by_contact": {
         "1": 0,
@@ -57,7 +49,7 @@ _DEFAULT_RULES: dict = {
 def load_rules() -> dict:
     """Load rules from config/rules.json; fall back to built-in defaults on any failure.
 
-    文件中的键覆盖默认值，未提供的键（如 song_level_weights）由内置默认补齐，
+    文件中的键覆盖默认值，未提供的键由内置默认补齐，
     保证调用方总能取到完整规则集。
     """
     try:

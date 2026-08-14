@@ -30,24 +30,28 @@ def test_level_to_score_boundaries():
         "7": 3, "8": 3,
         "9": 4, "10": 4,
         "11": 5,
-        "12": 6, "12+": 6,
-        "15": 9, "15+": 10, "16": 10, "16+": 10, "17": 10,
+        "12": 6,
+        "13": 7,
+        "14": 8,
+        "15": 9,
+        "15+": 10, "16": 10, "16+": 10, "17": 10,
     }
     for level, expected in cases.items():
         assert level_to_score(level) == expected, level
 
 
-def test_level_chaos_glitch_plus_one_on_mid_tiers():
-    """Chaos/Glitch 在 13/14 档比 Hard 体感更难、各 +1。"""
-    assert level_to_score("13", "Hard") == 6
-    assert level_to_score("13", "Chaos") == 7
-    assert level_to_score("13", "Glitch") == 7
-    assert level_to_score("14", "Hard") == 7
-    assert level_to_score("14", "Chaos") == 8
-    assert level_to_score("14", "Glitch") == 8
-    # 其余档位 type 不影响
-    assert level_to_score("15", "Hard") == 9
-    assert level_to_score("15", "Chaos") == 9
+def test_level_plus_one_on_base():
+    """带 `+` 的定数在原等级基础上 +1（封顶 10）；类型不影响分值。"""
+    assert level_to_score("11+") == 6
+    assert level_to_score("12+") == 7
+    assert level_to_score("13+") == 8
+    assert level_to_score("14+") == 9
+    assert level_to_score("15+") == 10
+    # 类型不再影响分值（13/14 档统一 7/8）
+    for t in ("Hard", "Chaos", "Glitch"):
+        assert level_to_score("13", t) == 7
+        assert level_to_score("14", t) == 8
+        assert level_to_score("15", t) == 9
     assert level_to_score("15+", "Glitch") == 10
 
 

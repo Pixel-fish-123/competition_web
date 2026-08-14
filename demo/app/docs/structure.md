@@ -79,11 +79,12 @@
 - 设置限时：`routes.py:227-233`（`POST /api/time_limit`，须正数）；心跳：`routes.py:236-243`（`GET /api/tick`）。
 
 ### H. 歌曲 / 难度规则
-- 歌曲难度分（10 分制，Cytus II 2026 难度表）：`song_lib.py:33-64`（`level_to_score(level, type)`）。
-  - 数值为主：≤3→1、4-6→2、7-8→3、9-10→4、11→5、12→6、13→6、14→7、15→9、15+/16+→10；
-    **Chaos/Glitch 在 13/14 档比 Hard +1**（7/8）。
-- 歌曲库校验：`song_lib.py:77-110`（`parse_song_library`）——`type` ∈ {Glitch, Chaos, Hard}、歌名非空且唯一、level 合法。
-- 开局最少歌曲数：**≥25 首**（`song_lib.py:178-180`）。
+- 歌曲难度分（10 分制，Cytus II 2026 难度表）：`song_lib.py:25-62`（`level_to_score(level, type)`）。
+  - **纯数值制**：≤3→1、4-6→2、7-8→3、9-10→4、11→5、12→6、13→7、14→8、15→9；
+    **带 `+` 的定数在原等级基础上 +1（封顶 10）**（11+→6、12+→7、13+→8、14+→9、15+→10）；
+    16 及以上封顶 10；**类型（Chaos/Glitch/Hard）不影响分值**（`song_type` 参数仅为兼容保留）。
+- 歌曲库校验：`song_lib.py:63-96`（`parse_song_library`）——`type` ∈ {Glitch, Chaos, Hard}、歌名非空且唯一、level 合法。
+- 开局最少歌曲数：**≥25 首**（`song_lib.py:134,163-164`）。
 
 ### I. 任务生成 / 分配规则
 - 歌曲库路径（25→23→20+1 流水线）：`song_lib.py:171-270`（`generate_tasks_from_songs`）。
@@ -96,10 +97,9 @@
 - 无歌曲库回退：`task_gen.py:38-79`（`generate_tasks`）——10 分制 8 档难度分层、顶层难度唯一化（仅一首 10 分）、L1 固定 +10。
 
 ### J. 规则数据源
-- 外部数据：`config/rules.json`——难度映射（`difficulty_score`）、16 项任务表（`tasks`，含 weight/bonus）、3 模板（`templates`）、**测试歌曲难度权重池（`song_level_weights`，level→权重）**、**能源加成表（`energy_bonus_by_contact`，接触能源数→每格加成，超档封顶）**。
-- 加载与回退：`rules.py:48-80`（`load_rules`，缺失/损坏时用内置 `_DEFAULT_RULES`；文件键覆盖默认、缺失键由默认补齐）。
+- 外部数据：`config/rules.json`——难度映射（`difficulty_score`，存档参考）、16 项任务表（`tasks`，含 weight/bonus）、3 模板（`templates`）、**能源加成表（`energy_bonus_by_contact`，接触能源数→每格加成，超档封顶）**。
+- 加载与回退：`rules.py:49-66`（`load_rules`，缺失/损坏时用内置 `_DEFAULT_RULES`；文件键覆盖默认、缺失键由默认补齐）。
 - 注意：`rules.py` 内置默认与 `rules.json` 内容需保持一致（两处都有完整副本，`tests/test_rules.py` 有同步断言）。
-- `song_level_weights` 消费方：`tools/gen_test_songs.py`（`_difficulty_pool`，配置缺失回退内置）。
 - `energy_bonus_by_contact` 消费方：`game.py` 的 `_energy_bonus_for`（缺表回退 `min(contacts-1, 2)`）。
 
 ### K. 成绩上传协议规则（v1）

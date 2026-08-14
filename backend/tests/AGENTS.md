@@ -23,7 +23,7 @@
 - `test_competitions.py`：任意状态可删（issue 1）、force-finish 作废对局（issue 8）、无 points_rule/gameplay_plugin/song_lib 字段。
 - `test_matches.py`：`result_locked` 锁定后再记分 400（issue 14）；`randomize-sides` 随机选边（issue 2，含 403/400 边界、轮空对局拒绝、顺序可交换性）。
 - `test_announcements.py`：公告发布/列表/详情/附件下载/删除（上传目录 monkeypatch 到 tmp_path，issue 4）。
-- `test_gameplay_log.py`：demo 真实导出格式判定（「游戏结束 - 守护者获胜 (守85 : 掠72)」system 事件 + 顶端直胜 victory 事件；守护者=participant_b，掠夺者=participant_a）。
+- `test_gameplay_log.py`：demo 真实导出格式判定（「游戏结束 - 防守方获胜 (防85 : 攻72)」system 事件 + 顶端直胜 victory 事件；**兼容改名前的旧格式「守护者/掠夺者」**；防守方=participant_b，攻击方=participant_a）。
 - `test_admin_users_crud.py`：删除未完结对局选手 → 对手获胜（issue 3）；无封禁 status 选项（issue 4）。
 - `test_rankings.py` / `test_swiss.py`：standings 含 wins/losses/draws/points（issue 9/11）；swiss 默认轮数 `ceil(log2 n)+1`。
 - `test_points.py`：积分纯手动（结算已删除，issue 6）。

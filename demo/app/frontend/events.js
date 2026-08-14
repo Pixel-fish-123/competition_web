@@ -27,13 +27,13 @@ window.onCellHover = function (id) {
   const [layer, idx] = getLayerAndIndex(id);
   let ownerCn = "未占领";
   let ownerColor = "var(--text-mute)";
-  if (cell.owner === "defender") { ownerCn = "守护者"; ownerColor = "var(--defender-bright)"; }
+  if (cell.owner === "defender") { ownerCn = "防守方"; ownerColor = "var(--defender-bright)"; }
   else if (cell.owner === "attacker") {
-    ownerCn = cell.activated ? "掠夺者 · 已激活" : "掠夺者 · 未激活";
+    ownerCn = cell.activated ? "攻击方 · 已激活" : "攻击方 · 未激活";
     ownerColor = cell.activated ? "var(--attacker-bright)" : "var(--text-mute)";
   }
 
-  const encircled = window.encircledSet && window.encircledSet.has(id) ? `<br><span style="color:var(--defender-bright)">[被包围]</span>` : "";
+  const encNote = cell.from_encirclement ? `<br><span style="color:var(--defender-bright)">包围获得</span>` : "";
   const diffLabel = cell.difficulty_label || ("CHAOS " + cell.diff_score);
   const songLine = cell.song_name ? `<div style="color:var(--text);font-weight:600">${cell.song_name}</div>` : "";
   const bonusLine = (cell.owner === "attacker" && cell.activated && cell.energy_bonus > 0)
@@ -43,13 +43,13 @@ window.onCellHover = function (id) {
     ${songLine}
     ${diffLabel}<br>
     任务: ${cell.task_name || "-"}<br>
-    分: ${cell.diff_score} (+${cell.task_bonus}) = <b style="color:var(--gold)">${cell.total_score}</b>${bonusLine}<br>
-    <b style="color:${ownerColor}">${ownerCn}</b>${encircled}
+    分: ${cell.diff_score} (+${cell.task_bonus}) = <b style="color:var(--gold)">${cell.total_score}</b>${bonusLine}${encNote}<br>
+    <b style="color:${ownerColor}">${ownerCn}</b>
   `;
 };
 
 function onState(state) {
-  window.setBoardState(state.board, state.encircled);
+  window.setBoardState(state.board);
   window.renderPanel(state);
   renderEvents(state.events);
 }

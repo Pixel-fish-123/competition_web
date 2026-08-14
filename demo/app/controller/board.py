@@ -19,6 +19,7 @@ class Cell:
     song_level: str = ""
     total_score: int = 0
     energy_bonus: int = 0
+    from_encirclement: bool = False   # 由包围机制获得的格子（前端虚线显示，功能与普通格相同）
     neighbors: list[int] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -37,6 +38,7 @@ class Cell:
             "song_level": self.song_level,
             "total_score": self.total_score,
             "energy_bonus": self.energy_bonus,
+            "from_encirclement": self.from_encirclement,
             "neighbors": list(self.neighbors),
         }
 
@@ -128,28 +130,3 @@ def build_cells(cells_data: list[dict] | None = None) -> list[Cell]:
                 neighbors=_compute_neighbors(cell_id),
             ))
     return cells
-
-
-def cell_positions(width: float, height: float) -> dict[int, tuple[float, float]]:
-    """Compute (x, y) center positions for rendering the triangle grid."""
-    positions: dict[int, tuple[float, float]] = {}
-    margin_x = width * 0.08
-    margin_y = height * 0.06
-    usable_w = width - 2 * margin_x
-    usable_h = height - 2 * margin_y
-    dx = usable_w / 6.0
-    dy = usable_h / 7.0
-    cx = width / 2.0
-
-    for cell_id in range(21):
-        layer, idx = _get_layer_and_index(cell_id)
-        x = cx + (idx - (layer - 1) / 2.0) * dx
-        y = margin_y + (layer - 1) * dy
-        positions[cell_id] = (x, y)
-
-    for i in range(6):
-        x = cx + (i - 2.5) * dx
-        y = margin_y + 6 * dy
-        positions[21 + i] = (x, y)
-
-    return positions

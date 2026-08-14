@@ -18,8 +18,8 @@
     </div>
     <div class="controls">
       <div class="team-select" role="group" aria-label="选择阵营">
-        <button class="pick pick-def" data-team="defender"><span class="swatch"></span>守护者</button>
-        <button class="pick pick-atk" data-team="attacker"><span class="swatch"></span>掠夺者</button>
+        <button class="pick pick-def" data-team="defender"><span class="swatch"></span>防守方</button>
+        <button class="pick pick-atk" data-team="attacker"><span class="swatch"></span>攻击方</button>
         <button class="pick pick-clr" data-team="clear">清除</button>
       </div>
       <span class="vbar"></span>
@@ -33,7 +33,7 @@
 
   <div id="scoreboard">
     <div class="score-side score-def">
-      <span class="score-label">守护者</span>
+      <span class="score-label">防守方</span>
       <span class="score-num" id="defender-score">0</span>
     </div>
     <div class="score-center">
@@ -42,7 +42,7 @@
       <div class="timer-track"><div class="timer-bar" id="timer-fill"></div></div>
     </div>
     <div class="score-side score-atk">
-      <span class="score-label">掠夺者</span>
+      <span class="score-label">攻击方</span>
       <span class="score-num" id="attacker-score">0</span>
     </div>
   </div>
@@ -83,19 +83,16 @@
       <div class="info-block">
         <div class="info-key">L1 源头</div>
         <div class="info-val" id="l1-status">未占领</div>
+        <div class="info-val" id="l1-energy">⚡ 能量 0/10</div>
       </div>
       <div class="info-block">
-        <div class="info-key">包围</div>
-        <div class="info-val" id="encircle-status">未触发</div>
-      </div>
-      <div class="info-block info-detail">
         <div class="info-key">格子详情</div>
         <div class="info-val" id="cell-detail">悬停查看</div>
       </div>
       <div class="legend">
-        <div class="lg-row"><span class="lg lg-def"></span>守护者</div>
-        <div class="lg-row"><span class="lg lg-atk-on"></span>掠夺者 已激活</div>
-        <div class="lg-row"><span class="lg lg-atk-off"></span>掠夺者 未激活</div>
+        <div class="lg-row"><span class="lg lg-def"></span>防守方</div>
+        <div class="lg-row"><span class="lg lg-atk-on"></span>攻击方 已激活</div>
+        <div class="lg-row"><span class="lg lg-atk-off"></span>攻击方 未激活</div>
         <div class="lg-row"><span class="lg lg-empty"></span>空</div>
         <div class="lg-row"><span class="lg lg-energy"></span>能源</div>
       </div>

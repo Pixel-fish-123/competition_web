@@ -2,43 +2,53 @@
   "songs": [
     {
       "name": "Phantom Horizon",
-      "type": "Chaos",
+      "type": "Glitch",
       "level": "15+"
     },
     {
-      "name": "Stellar Paradox",
-      "type": "Chaos",
+      "name": "Solar Reverie",
+      "type": "Hard",
       "level": "15"
     },
     {
-      "name": "Astral Prism",
-      "type": "Glitch",
+      "name": "Astral Genesis",
+      "type": "Chaos",
       "level": "14"
     },
     {
-      "name": "Stellar Paradox 2",
-      "type": "Glitch",
+      "name": "Astral Prism",
+      "type": "Chaos",
       "level": "13"
     },
     {
-      "name": "Silent Rapture",
+      "name": "Azure Reverie",
       "type": "Hard",
       "level": "12"
     },
     {
-      "name": "Neon Genesis",
-      "type": "Chaos",
+      "name": "Astral Requiem",
+      "type": "Hard",
       "level": "11"
     },
     {
-      "name": "Hyper Reverie",
-      "type": "Chaos",
+      "name": "Silent Rapture",
+      "type": "Hard",
       "level": "10"
     },
     {
-      "name": "Neon Requiem",
-      "type": "Glitch",
+      "name": "Neon Genesis",
+      "type": "Hard",
       "level": "8"
+    },
+    {
+      "name": "Solar Burst",
+      "type": "Hard",
+      "level": "8"
+    },
+    {
+      "name": "Obsidian Requiem",
+      "type": "Glitch",
+      "level": "15+"
     },
     {
       "name": "Neon Prism",
@@ -176,7 +186,7 @@
       "level": "12+"
     },
     {
-      "name": "Solar Burst",
+      "name": "Solar Burst 2",
       "type": "Chaos",
       "level": "15"
     },
@@ -206,7 +216,7 @@
       "level": "10+"
     },
     {
-      "name": "Solar Reverie",
+      "name": "Solar Reverie 2",
       "type": "Chaos",
       "level": "9"
     },
@@ -239,16 +249,6 @@
       "name": "Silent Sanctum 2",
       "type": "Hard",
       "level": "11+"
-    },
-    {
-      "name": "Crimson Symphony 2",
-      "type": "Glitch",
-      "level": "8"
-    },
-    {
-      "name": "Crimson Symphony 3",
-      "type": "Glitch",
-      "level": "9+"
     }
   ]
 }

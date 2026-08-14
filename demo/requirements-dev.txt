@@ -1,0 +1,2 @@
+# 开发依赖（仅本地测试用，不随 exe 分发；运行时依赖见 app/main/requirements.txt）
+pytest>=7.0

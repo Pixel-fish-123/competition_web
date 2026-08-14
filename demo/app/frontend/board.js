@@ -15,7 +15,6 @@ function getLayerAndIndex(id) {
 const pyramidEl = document.getElementById("pyramid");
 let cellElements = {};
 let boardState = [];
-let encircledSet = new Set();
 let hoverId = -1;
 let selectedTeam = null;
 let pendingL1 = null;
@@ -23,6 +22,16 @@ let pendingL1 = null;
 function buildPyramid() {
   pyramidEl.innerHTML = "";
   cellElements = {};
+
+  // L1 能量线：独立于 L1 格正上方的一行（与 L1 方格同宽、水平对齐），
+  // 内含能量格点 + 攻击方等待进度条；不占用格子内部空间，避免遮挡歌名/难度/任务
+  const l1Line = document.createElement("div");
+  l1Line.className = "l1-energy-line";
+  l1Line.id = "l1-energy-line";
+  l1Line.innerHTML =
+    '<div class="l1-pips"></div>' +
+    '<div class="l1-timer"><div class="l1-timer-fill" id="l1-timer-fill"></div></div>';
+  pyramidEl.appendChild(l1Line);
 
   for (let layer = 1; layer <= 6; layer++) {
     const row = document.createElement("div");
@@ -81,13 +90,15 @@ function renderBoard() {
       el.classList.add("owner-attacker");
       if (cell.activated) el.classList.add("activated");
     }
-    if (encircledSet.has(id)) el.classList.add("encircled");
+    if (cell.from_encirclement) el.classList.add("from-encirclement");
 
     const songEl = cell.song_name ? `<div class="cell-song">${cell.song_name}</div>` : "";
     const diffLabel = cell.difficulty_label || ("CHAOS " + cell.diff_score);
     const taskShort = cell.task_name || "-";
     const bonusTag = (cell.owner === "attacker" && cell.activated && cell.energy_bonus > 0)
       ? `<span class="cell-bonus">(+${cell.energy_bonus})</span>` : "";
+    // L1 格内部只渲染正常内容（歌名/难度/任务/分数）；
+    // 能量格点行与等待进度条独立于格子上方（见 updateL1Line）
     el.innerHTML = `
       <div class="cell-score">${cell.total_score}${bonusTag}</div>
       ${songEl}
@@ -95,6 +106,27 @@ function renderBoard() {
       <div class="cell-task">${taskShort}</div>
     `;
   }
+  updateL1Line();
+}
+
+// 更新 L1 能量线：格点数量 = 能量目标（10），攻击方持有时显示等待进度条
+function updateL1Line() {
+  const line = document.getElementById("l1-energy-line");
+  if (!line) return;
+  const e = window._l1Energy || { value: 0, target: 10, holder: null, progress: 0 };
+  const target = Math.max(1, e.target || 10);
+  const pipsEl = line.querySelector(".l1-pips");
+  let pips = "";
+  for (let i = 0; i < target; i++) {
+    pips += `<span class="l1-pip${i < (e.value || 0) ? " on" : ""}" title="能量 ${i + 1}/${target}"></span>`;
+  }
+  pipsEl.innerHTML = pips;
+  const timerEl = line.querySelector(".l1-timer");
+  const holderIsAtk = e.holder === "attacker";
+  timerEl.classList.toggle("show", holderIsAtk);
+  if (holderIsAtk) timerEl.title = "攻击方持有 L1 · 距下次 +1 能量";
+  const fill = document.getElementById("l1-timer-fill");
+  if (fill) fill.style.width = Math.round((e.progress || 0) * 100) + "%";
 }
 
 function onCellClick(id) {
@@ -118,7 +150,7 @@ function onCellClick(id) {
 
 function refreshState() {
   fetch("/api/state").then(r => r.json()).then(s => {
-    window.setBoardState(s.board, s.encircled);
+    window.setBoardState(s.board);
     window.renderPanel(s);
   }).catch(() => {});
 }
@@ -182,15 +214,15 @@ window.fitPyramid = fitPyramid;
 setTimeout(fitPyramid, 100);
 setTimeout(fitPyramid, 400);
 
-window.renderBoard = renderBoard;
-window.setBoardState = (board, encircled) => {
-  boardState = board;
-  encircledSet = new Set(encircled);
-  window.encircledSet = encircledSet;
+window.renderBoard = () => {
   renderBoard();
   fitPyramid();
 };
-window.encircledSet = encircledSet;
+window.setBoardState = (board) => {
+  boardState = board;
+  // 渲染由 renderPanel 触发：先写入 window._l1Energy 再 renderBoard，
+  // 保证 L1 能量线首帧即用最新值（避免用默认值闪一帧）。
+};
 window.getSelectedTeam = () => selectedTeam;
 window.setSelectedTeam = (t) => { selectedTeam = t; };
 window.getBoardState = () => boardState;

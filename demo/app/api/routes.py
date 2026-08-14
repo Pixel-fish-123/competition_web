@@ -240,7 +240,9 @@ async def api_tick():
         await broadcast_state()
     return {"elapsed": round(game.elapsed(), 2),
             "time_limit": game.time_limit_minutes,
-            "game_over": game.game_over}
+            "game_over": game.game_over,
+            "l1_energy": game.l1_energy,
+            "l1_energy_progress": game._l1_energy_progress()}
 
 
 @router.get("/api/state")
@@ -313,7 +315,7 @@ async def api_screenshot(body: dict[str, Any]):
     else:
         b64 = image.strip()
     if len(b64) > 28_000_000:
-        return JSONResponse(status_code=413, content={"ok": False, "error": "图片数据过大，不能超过 21 MB"})
+        return JSONResponse(status_code=413, content={"ok": False, "error": "图片数据过大，不能超过约 21 MB（base64 约 26.7 MB）"})
     try:
         raw = base64.b64decode(b64, validate=True)
     except Exception:

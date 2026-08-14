@@ -99,7 +99,7 @@ function shotDrawCell(ctx, cell, x, y) {
   ctx.fillRect(x, y, w, h);
   ctx.strokeStyle = border;
   ctx.lineWidth = 2;
-  if (cell.encircled) {
+  if (cell.from_encirclement) {          // 包围获得的格：虚线
     ctx.setLineDash([6, 4]);
     ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
     ctx.setLineDash([]);
@@ -117,17 +117,10 @@ function shotDrawCell(ctx, cell, x, y) {
     return;
   }
 
-  // 已激活进攻方：左上角金色方块标记
+  // 已激活攻击方：左上角金色方块标记
   if (cell.owner === "attacker" && cell.activated) {
     ctx.fillStyle = "#fbbf24";
     ctx.fillRect(x + 4, y + 4, 8, 8);
-  }
-  // 包围：左下角蓝点
-  if (cell.encircled) {
-    ctx.fillStyle = "#3b82f6";
-    ctx.beginPath();
-    ctx.arc(x + 10, y + h - 10, 4, 0, Math.PI * 2);
-    ctx.fill();
   }
 
   // 右上角分数
@@ -223,9 +216,9 @@ async function captureScreenshot() {
   ctx.font = "14px 'Microsoft YaHei', Arial, sans-serif";
   ctx.fillStyle = "#888888";
   ctx.textAlign = "left";
-  ctx.fillText("守护者", leftX, scoreY0 + 24);
+  ctx.fillText("防守方", leftX, scoreY0 + 24);
   ctx.textAlign = "right";
-  ctx.fillText("掠夺者", rightX, scoreY0 + 24);
+  ctx.fillText("攻击方", rightX, scoreY0 + 24);
   ctx.font = "bold 66px Arial, sans-serif";
   ctx.textAlign = "left";
   ctx.fillStyle = "#60a5fa";
@@ -256,14 +249,11 @@ async function captureScreenshot() {
 
   // 棋盘
   let y = scoreY0 + scoreH + SHOT_PAD;
-  const encircledSet = new Set(state.encircled || []);
   for (const row of rows) {
     const rw = rowWidth(row.length);
     let x = (canvasW - rw) / 2;
     for (const cell of row) {
-      const c = Object.assign({}, cell);
-      c.encircled = encircledSet.has(cell.id);
-      shotDrawCell(ctx, c, x, y);
+      shotDrawCell(ctx, cell, x, y);
       x += SHOT_CELL_W + SHOT_GAP_X;
     }
     y += SHOT_CELL_H + SHOT_GAP_Y;
@@ -304,9 +294,13 @@ document.getElementById("l1-cancel-btn").addEventListener("click", () => {
 });
 
 document.getElementById("l1-confirm-btn").addEventListener("click", () => {
-  const score = parseInt(document.getElementById("l1-score").value);
-  const tp = parseFloat(document.getElementById("l1-tp").value);
-  if (isNaN(score)) { alert("请输入分数"); return; }
+  const scoreVal = document.getElementById("l1-score").value.trim();
+  const tpVal = document.getElementById("l1-tp").value.trim();
+  const score = parseInt(scoreVal);
+  const tp = parseFloat(tpVal);
+  if (scoreVal === "" || isNaN(score)) { alert("请输入分数"); return; }
+  if (score < 0 || score > 10000000) { alert("分数需在 0 ~ 10000000 之间"); return; }
+  if (tpVal !== "" && (isNaN(tp) || tp < 0 || tp > 100)) { alert("TP 需在 0 ~ 100 之间"); return; }
   const team = pendingL1 ? pendingL1.team : null;
   document.getElementById("l1-modal").classList.add("hidden");
   document.getElementById("l1-score").value = "";
@@ -325,20 +319,28 @@ function renderPanel(state) {
   const l1 = state.l1;
   const l1El = document.getElementById("l1-status");
   if (l1.holder) {
-    const holderCn = l1.holder === "defender" ? "守护者" : "掠夺者";
+    const holderCn = l1.holder === "defender" ? "防守方" : "攻击方";
     const holderColor = l1.holder === "defender" ? "var(--defender-bright)" : "var(--attacker-bright)";
     const tpStr = (l1.high_tp !== null && l1.high_tp !== undefined) ? ` · tp${l1.high_tp}` : "";
     l1El.innerHTML = `<b style="color:${holderColor}">${holderCn}</b><br>${l1.high_score.toLocaleString()}${tpStr}`;
   } else {
     l1El.textContent = "未占领";
   }
-
-  const encEl = document.getElementById("encircle-status");
-  if (state.encirclement_active && state.encircled.length > 0) {
-    encEl.innerHTML = `<b style="color:var(--defender-bright)">成立 · ${state.encircled.length}格</b>`;
-  } else {
-    encEl.textContent = "未触发";
-  }
+  // L1 能量：攻击方持有期间积累（满 target 点攻击方直接获胜）；持有期间包围失效
+  const energyEl = document.getElementById("l1-energy");
+  const target = state.l1_energy_target || 10;
+  const holderIsAtk = l1.holder === "attacker";
+  energyEl.innerHTML = `⚡ 能量 ${state.l1_energy ?? 0}/${target}` +
+    (holderIsAtk ? ` <b style="color:var(--defender-bright)">· 包围失效</b>` : "");
+  // 棋盘 L1 格点/持续时间条数据（每秒由 /api/tick 校准）
+  window._l1Energy = {
+    value: state.l1_energy ?? 0,
+    target: target,
+    holder: l1.holder,
+    progress: state.l1_energy_progress || 0,
+    ts: Date.now(),
+  };
+  if (window.renderBoard) window.renderBoard();
 
   const phaseEl = document.getElementById("game-phase");
   const bannerEl = document.getElementById("winner-banner");
@@ -348,14 +350,14 @@ function renderPanel(state) {
     bannerEl.textContent = "";
     boardArea.classList.remove("victory-flash");
   } else if (state.game_over) {
-    if (state.win_type === "top") {
-      phaseEl.textContent = "顶端直胜";
-      bannerEl.textContent = "谐律崩解 · 进攻方获胜";
+    if (state.win_type === "l1_energy") {
+      phaseEl.textContent = "L1 能量胜利";
+      bannerEl.textContent = "L1充能完成 · 攻击方获胜";
       boardArea.classList.add("victory-flash");
     } else {
       phaseEl.textContent = "计时结束";
       const w = state.winner;
-      bannerEl.textContent = w === "draw" ? "平局" : (w === "defender" ? "守护者获胜" : "掠夺者获胜");
+      bannerEl.textContent = w === "draw" ? "平局" : (w === "defender" ? "防守方获胜" : "攻击方获胜");
     }
   } else {
     phaseEl.textContent = "进行中";
@@ -386,6 +388,18 @@ setInterval(async () => {
     const r = await fetch("/api/tick");
     const j = await r.json();
     renderTimer(j.elapsed, j.time_limit || 25);
+    // L1 能量每秒校准（格点 + 持续时间条，以服务端实时进度为准）
+    if (window._l1Energy && j.game_over !== undefined) {
+      window._l1Energy.value = j.l1_energy ?? window._l1Energy.value;
+      if (window._l1Energy.holder === "attacker") {
+        window._l1Energy.progress = j.l1_energy_progress ?? window._l1Energy.progress;
+      }
+      window._l1Energy.ts = Date.now();
+      const fill = document.getElementById("l1-timer-fill");
+      if (fill) fill.style.width = Math.round((window._l1Energy.progress || 0) * 100) + "%";
+      const pips = document.querySelectorAll(".l1-pip");
+      pips.forEach((p, i) => p.classList.toggle("on", i < (window._l1Energy.value || 0)));
+    }
     if (j.game_over && !window._lastGameOver) {
       window._lastGameOver = true;
       fetch("/api/state").then(r => r.json()).then(s => { window.renderPanel(s); });

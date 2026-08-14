@@ -49,7 +49,7 @@ FastAPI 路由层：11 个模块，全部端点在此声明，权限/审计/限�
 - 报名容量按 `status in ("pending","approved")` 计，重复报名检查先于容量检查（已报名者即使满员也报"已报名"而非"已满"）。
 - 队伍报名在 Registration 存 `user_id=队长`，成员无独立行；`_existing_registration` 靠 user_id 匹配，队伍成员报名会被误判为"已报名"。
 - 状态机 `finished` 是终态：进 finished 前守卫未完成对局（400）；`force:true` 跳过守卫，未完成对局标记为作废（`result_type="abandoned"`、result=None）—— `_replay_finished` 对无 result 的对局静默跳过，不参与排名。
-- **阵营约定（用户确认）**：守护者=defender=蓝方=participant_b，掠夺者=attacker=红方=participant_a；页面统一标注「掠夺者/守护者」。gameplay-log 判定解析 demo「游戏结束 - 守护者获胜 (守85 : 掠72)」system 事件与「顶端直胜」victory 事件（详见 matches.py `_extract_scores_and_winner`）。
-- gameplay-log 导入端点：`require_referee` + 比赛级 `referee_ids` 校验（admin 旁路）；`?sync=true` 预填 `match.result`（score_a=掠夺者分、score_b=守护者分），不结束对局、不触碰引擎；最终结果由裁判「保存结果」（POST /result + lock=true）落库并锁定。
+- **阵营约定（用户确认）**：防守方=defender=蓝方=participant_b，攻击方=attacker=红方=participant_a（demo 已从「守护者/掠夺者」改名，解析器兼容新旧）。页面统一标注「掠夺者/守护者」。gameplay-log 判定解析 demo「游戏结束 - 防守方获胜 (防85 : 攻72)」system 事件与「顶端直胜」victory 事件（详见 matches.py `_extract_scores_and_winner`）。
+- gameplay-log 导入端点：`require_referee` + 比赛级 `referee_ids` 校验（admin 旁路）；`?sync=true` 预填 `match.result`（score_a=攻击方分、score_b=防守方分），不结束对局、不触碰引擎；最终结果由裁判「保存结果」（POST /result + lock=true）落库并锁定。
 - **随机选边一致性**：randomize-sides 交换 DB 行 participant_a/b，但引擎 MatchPlan 顺序排表时固定 —— 记分/回放必须经 `match_service._align_scores_to_engine` 把 score_a/b 归位到引擎坐标系，否则净胜分归属错乱（winner 是 id 无需对齐）。
 - admin_users 最后管理员保护：仅当 `user.id==current_user.id` 且降级时检查 admin 总数==1；删除用户保护：不能删自己/最后一个 admin/创建过比赛的用户。

@@ -336,7 +336,7 @@ async def api_screenshot(body: dict[str, Any]):
     else:
         b64 = image.strip()
     if len(b64) > 28_000_000:
-        return JSONResponse(status_code=413, content={"ok": False, "error": "图片数据过大，不能超过约 21 MB（base64 约 26.7 MB）"})
+        return JSONResponse(status_code=413, content={"ok": False, "error": "图片数据过大，不能超过 21 MB"})
     try:
         raw = base64.b64decode(b64, validate=True)
     except Exception:

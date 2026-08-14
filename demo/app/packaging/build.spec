@@ -35,6 +35,7 @@ hiddenimports += [
     "controller.board",
     "controller.game",
     "controller.rules",
+    "controller.task_gen",
     "controller.song_lib",
 ]
 

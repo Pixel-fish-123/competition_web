@@ -81,11 +81,12 @@ demo/
     │   ├── board.py           # Cell 结构、27 格邻接、地图构建
     │   ├── game.py            # 激活/包围/计分/胜利算法
     │   ├── song_lib.py        # 歌曲校验、level→分值、23→21 模板流水线
+    │   ├── task_gen.py        # 无歌曲库回退的任务生成
     │   └── rules.py           # 规则加载（config/rules.json，缺失回退内置默认）
     ├── config/rules.json      # 难度映射、16 项任务表、3 模板权重、能源加成表
     ├── api/routes.py          # REST + WebSocket + 成绩上传协议 v1
     ├── frontend/              # 原生静态页面（棋盘/面板/事件/WS）
-    └── docs/                  # plan.md、structure.md、规则总结.md、成绩上传协议.md
+    └── docs/                  # plan.md、成绩上传协议.md、plans/
 ```
 
 ## 验证
@@ -95,6 +96,7 @@ demo/
 ```bash
 python -m pip install -r requirements-dev.txt   # 首次：安装 pytest（仅开发依赖）
 python -m pytest tests -q                        # 玩法测试（含新包围/激活/计分/L1/流水线）
+python -c "import sys; sys.path.insert(0, 'app'); from controller.task_gen import generate_tasks; from controller.game import GameController; g=GameController(); g.init(generate_tasks(42)); print('ok', len(g.cells))"
 python -c "import sys; sys.path.insert(0, 'app'); import json; from controller.song_lib import parse_song_library; d=json.load(open('test_songs.json',encoding='utf-8')); print('songs', len(parse_song_library(d)))"
 ```
 
@@ -115,5 +117,5 @@ pyinstaller app/packaging/build.spec --workpath app/packaging/build --distpath a
 
 - 代码结构与规则映射（规则→实现位置索引）：`app/docs/structure.md`
 - 完整算法与玩法：`app/docs/plan.md`
-- 面向选手/裁判的比赛规则：`app/docs/规则总结.md`
 - 成绩上传协议 v1：`app/docs/成绩上传协议.md`
+- 开发计划：`app/docs/plans/`

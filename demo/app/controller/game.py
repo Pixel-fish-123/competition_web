@@ -102,7 +102,8 @@ class GameController:
         self._pause_at = None
         self.paused = False
         self._sync_elapsed()
-        self._log("计时继续", "system")
+        if not self._check_timeout():       # 恢复瞬间若已超时（暂停前越过限时）立即结算，不再记"继续"
+            self._log("计时继续", "system")
 
     def toggle_pause(self) -> bool:
         if self.paused:
@@ -139,6 +140,8 @@ class GameController:
         self._log(f"攻击方L1能量满{self.l1_energy_target}点，直接获胜", "victory")
 
     def _check_timeout(self) -> bool:
+        if self.paused:
+            return False            # 暂停期间冻结计时，不允许超时结算
         self._sync_elapsed()
         if self.elapsed_minutes >= self.time_limit_minutes and not self.game_over:
             self.end_game()

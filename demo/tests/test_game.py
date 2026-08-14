@@ -469,6 +469,21 @@ def test_toggle_pause_and_state_dict():
     assert not g.paused
 
 
+def test_pause_blocks_timeout_until_resume():
+    """暂停瞬间已越过限时：暂停期间不得结算；恢复后立即超时结算。"""
+    g, clock = clock_game()
+    clock[0] = 25 * 60 + 30              # 已超时 30 秒
+    g.pause()
+    assert g.paused
+    assert g.game_over is False
+    assert g._check_timeout() is False   # 暂停中不超时
+    assert g.game_over is False
+    clock[0] = 26 * 60 + 30              # 再暂停 1 分钟
+    g.resume()                           # 恢复瞬间已超时 -> 立即结算
+    assert g.game_over
+    assert g.win_type == "timeout"
+
+
 def test_encirclement_disabled_while_attacker_holds_l1():
     """攻击方持有 L1 期间包围机制失效；防守方夺回后恢复。"""
     g = new_game()

@@ -431,10 +431,10 @@ function check_l1_energy():
 | 达成tp99.5以上 | 1 | 9 | | 达成93w以上 | 8 | 6 |
 | 达成99.5w以上 | 1 | 9 | | 达成tp96以上 | 8 | 5 |
 | 达成tp99以上 | 2 | 8 | | 达成92w以上 | 8 | 5 |
-| 达成97w以上 | 2 | 8 | | 达成miss<=1,bad<=1,good<=1 | 10 | 5 |
+| 达成97w以上 | 2 | 8 | | 达成miss<=1,bad<=1,good<=1 | 5 | 7 |
 | 达成tp98以上 | 5 | 7 | | 达成tp95以上 | 6 | 4 |
 | 达成95w以上 | 5 | 7 | | 达成91w以上 | 6 | 4 |
-| 达成FULL COMBO | 4 | 6 | | 达成90w以上 | 6 | 3 |
+| 达成FULL COMBO | 4 | 8 | | 达成90w以上 | 6 | 3 |
 
 > 单格总分 = 歌曲分 + 任务分（0~20）；16 项任务均进入随机池，MM 没有豁免逻辑；
 > 规则集中在 `app/config/rules.json`。
@@ -647,8 +647,8 @@ python -c "import json; from controller.song_lib import parse_song_library; d=js
 | 达成tp95以上 | +1 | 6 | TP 达到 95 |
 | 达成91w以上 | +1 | 6 | 分数达到 91w |
 | 达成90w以上 | +0 | 6 | 分数达到 90w |
-| 达成FULL COMBO | +7 | 4 | 全连击 |
-| 达成miss <= 1, bad <= 1, good <= 1 | +5 | 10 | miss、bad、good 均不超过 1 |
+| 达成FULL COMBO | +8 | 4 | 全连击 |
+| 达成miss <= 1, bad <= 1, good <= 1 | +7 | 5 | miss、bad、good 均不超过 1 |
 
 > 注：达成 xx 分数视为分数**大于等于**指定分数。任务按 `app/config/rules.json` 的权重随机抽取，共 16 项任务。
 

@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, BackgroundTasks, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
@@ -233,6 +233,26 @@ async def api_time_limit(req: TimeLimitReq):
     return {"ok": True, "state": game.to_state_dict()}
 
 
+@router.post("/api/pause")
+async def api_pause():
+    if not game.started or game.game_over:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "比赛未进行中，无法暂停"})
+    game.toggle_pause()
+    await broadcast_state()
+    return {"ok": True, "paused": game.paused, "state": game.to_state_dict()}
+
+
+@router.post("/api/exit")
+async def api_exit(background_tasks: BackgroundTasks):
+    """退出工具：直接结束控制器进程（本地裁判端用）。
+
+    响应先返回给浏览器，再由后台任务 os._exit(0) 终止进程；
+    与 auto-exit watchdog 的退出机制一致，dev 与打包 exe 均可用。
+    """
+    background_tasks.add_task(os._exit, 0)
+    return {"ok": True, "message": "控制器即将退出"}
+
+
 @router.get("/api/tick")
 async def api_tick():
     game._sync_elapsed()
@@ -241,6 +261,7 @@ async def api_tick():
     return {"elapsed": round(game.elapsed(), 2),
             "time_limit": game.time_limit_minutes,
             "game_over": game.game_over,
+            "paused": game.paused,
             "l1_energy": game.l1_energy,
             "l1_energy_progress": game._l1_energy_progress()}
 

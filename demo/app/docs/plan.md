@@ -326,6 +326,8 @@ function check_l1_energy():
 | POST | `/api/occupy` | 占领（body: `{cell_id, team, score?, tp?}`） |
 | POST | `/api/cancel` | 取消占领（body: `{cell_id}`） |
 | POST | `/api/end` | 结束游戏（计时结算） |
+| POST | `/api/pause` | 暂停/继续计时（toggle；未开局或已结束时返回 400，暂停冻结 elapsed 与 L1 能量积累） |
+| POST | `/api/exit` | 退出工具：直接结束控制器进程（响应先返回，后台 `os._exit(0)`） |
 | GET | `/api/state` | 获取完整状态 |
 | GET | `/api/tasks` | 导出当前任务配置 |
 | GET | `/api/scores` | 获取分数 |

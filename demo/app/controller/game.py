@@ -46,6 +46,9 @@ class GameController:
     _action_counter: int = 0
     _start_ts: float = 0.0
     time_limit_minutes: float = TIME_LIMIT_MINUTES
+    paused: bool = False           # 计时暂停中（冻结 elapsed 与 L1 能量积累）
+    _pause_at: float | None = None  # 暂停时刻（_time_fn 秒）；恢复时累加进 _pause_offset
+    _pause_offset: float = 0.0     # 累计暂停时长（秒），从计时中扣除
 
     def init(self, cells_data: list[dict] | None = None) -> None:
         self.cells = build_cells(cells_data)
@@ -66,18 +69,47 @@ class GameController:
         self.started = True
         self._action_counter = 0
         self._start_ts = time.time()
+        self.paused = False
+        self._pause_at = None
+        self._pause_offset = 0.0
         self.recalc_scores()   # 开局 L1 由防守方持有（0 分 0 tp），立即计入防守方分数
         self._log("游戏初始化完成", "system")
 
     def elapsed(self) -> float:
-        if not self.started or self.game_over:
+        if not self.started or self.game_over or self.paused:
             return self.elapsed_minutes
-        return (self._time_fn() - self._start_ts) / 60.0
+        return (self._time_fn() - self._start_ts - self._pause_offset) / 60.0
 
     def _sync_elapsed(self) -> None:
-        if self.started and not self.game_over:
-            self.elapsed_minutes = (self._time_fn() - self._start_ts) / 60.0
+        if self.started and not self.game_over and not self.paused:
+            self.elapsed_minutes = (self._time_fn() - self._start_ts - self._pause_offset) / 60.0
             self._accrue_l1_energy()
+
+    def pause(self) -> None:
+        """暂停计时：冻结 elapsed 与 L1 能量积累（占格/计分等操作仍可进行）。"""
+        if not self.started or self.game_over or self.paused:
+            return
+        self._sync_elapsed()
+        self.paused = True
+        self._pause_at = self._time_fn()
+        self._log("计时暂停", "system")
+
+    def resume(self) -> None:
+        """恢复计时：扣除暂停时长，计时与 L1 能量积累从暂停点继续。"""
+        if not self.started or self.game_over or not self.paused:
+            return
+        self._pause_offset += self._time_fn() - self._pause_at
+        self._pause_at = None
+        self.paused = False
+        self._sync_elapsed()
+        self._log("计时继续", "system")
+
+    def toggle_pause(self) -> bool:
+        if self.paused:
+            self.resume()
+        else:
+            self.pause()
+        return self.paused
 
     def _accrue_l1_energy(self) -> None:
         """攻击方持有 L1 期间按时间积累能量（连续持有每 interval 分钟 +1）。
@@ -246,6 +278,8 @@ class GameController:
             return False
         self._sync_elapsed()
         self.game_over = True
+        self.paused = False
+        self._pause_at = None
         self.win_type = "timeout"
         if self.defender_score > self.attacker_score:
             self.winner = "defender"
@@ -551,4 +585,5 @@ class GameController:
             "winner": self.winner,
             "win_type": self.win_type,
             "started": self.started,
+            "paused": self.paused,
         }

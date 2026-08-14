@@ -18,6 +18,24 @@ document.getElementById("end-game").addEventListener("click", () => {
   apiPost("/api/end", {});
 });
 
+document.getElementById("exit-app").addEventListener("click", () => {
+  if (!confirm("确认退出裁判端程序？")) return;
+  apiPost("/api/exit", {}).then(() => {});
+});
+
+function updatePauseBtn(paused) {
+  const btn = document.getElementById("pause-game");
+  btn.textContent = paused ? "继续" : "暂停";
+  btn.classList.toggle("act-gold", !!paused);
+}
+
+document.getElementById("pause-game").addEventListener("click", () => {
+  apiPost("/api/pause", {}).then(res => {
+    if (res && res.error) { alert(res.error); return; }
+    if (res && res.paused !== undefined) updatePauseBtn(res.paused);
+  });
+});
+
 document.getElementById("export-log").addEventListener("click", async () => {
   const button = document.getElementById("export-log");
   button.disabled = true;
@@ -341,11 +359,18 @@ function renderPanel(state) {
   const phaseEl = document.getElementById("game-phase");
   const bannerEl = document.getElementById("winner-banner");
   const boardArea = document.getElementById("board-area");
+  const pauseBtn = document.getElementById("pause-game");
   if (!state.started) {
     phaseEl.textContent = "未开始 · 点击随机开局";
     bannerEl.textContent = "";
     boardArea.classList.remove("victory-flash");
+    pauseBtn.disabled = true;
+    pauseBtn.textContent = "暂停";
+    pauseBtn.classList.remove("act-gold");
   } else if (state.game_over) {
+    pauseBtn.disabled = true;
+    pauseBtn.textContent = "暂停";
+    pauseBtn.classList.remove("act-gold");
     if (state.win_type === "l1_energy") {
       phaseEl.textContent = "L1 能量胜利";
       bannerEl.textContent = "L1充能完成 · 攻击方获胜";
@@ -355,10 +380,18 @@ function renderPanel(state) {
       const w = state.winner;
       bannerEl.textContent = w === "draw" ? "平局" : (w === "defender" ? "防守方获胜" : "攻击方获胜");
     }
+  } else if (state.paused) {
+    phaseEl.textContent = "已暂停";
+    bannerEl.textContent = "";
+    boardArea.classList.remove("victory-flash");
+    pauseBtn.disabled = false;
+    updatePauseBtn(true);
   } else {
     phaseEl.textContent = "进行中";
     bannerEl.textContent = "";
     boardArea.classList.remove("victory-flash");
+    pauseBtn.disabled = false;
+    updatePauseBtn(false);
   }
 }
 
@@ -384,6 +417,7 @@ setInterval(async () => {
     const r = await fetch("/api/tick");
     const j = await r.json();
     renderTimer(j.elapsed, j.time_limit || 25);
+    if (j.paused !== undefined && !j.game_over) updatePauseBtn(!!j.paused);
     // L1 能量每秒校准（格点 + 持续时间条，以服务端实时进度为准）
     if (window._l1Energy && j.game_over !== undefined) {
       window._l1Energy.value = j.l1_energy ?? window._l1Energy.value;
